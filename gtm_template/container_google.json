@@ -1,0 +1,207 @@
+{
+  "exportFormatVersion": 2,
+  "exportTime": "2026-09-21",
+  "containerVersion": {
+    "path": "accounts/0/containers/0/versions/0",
+    "accountId": "0",
+    "containerId": "0",
+    "containerVersionId": "0",
+    "container": {
+      "path": "accounts/0/containers/0",
+      "accountId": "0",
+      "containerId": "0",
+      "name": "Trivo - Template Google Ads",
+      "publicId": "GTM-TEMPLATE-GOOGLE",
+      "usageContext": ["WEB"]
+    },
+    "variable": [
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "1",
+        "name": "Google Ads - Tag ID",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "AW-PREENCHER"}],
+        "notes": "ID da tag do Google Ads. Formato: AW-XXXXXXXXX. Exemplo: AW-18227028875"
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "2",
+        "name": "Google Ads - Label Botão",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "PREENCHER_LABEL"}],
+        "notes": "Rótulo da conversão de botão no Google Ads. Copiar de: Metas → Conversões → clicar na conversão → 'Rótulo'."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "3",
+        "name": "GA4 - Measurement ID",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "G-PREENCHER"}],
+        "notes": "Measurement ID do GA4. Formato: G-XXXXXXXXX. Obtido em: GA4 → Admin → Fluxos de dados → Web."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "4",
+        "name": "Cookie - _gcl_aw",
+        "type": "k",
+        "parameter": [
+          {"type": "template", "key": "name", "value": "_gcl_aw"},
+          {"type": "boolean", "key": "decodeCookie", "value": "false"}
+        ],
+        "notes": "Cookie GCLID do Google Ads. Preservado pelo Vinculador de Conversões."
+      }
+    ],
+    "trigger": [
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "triggerId": "1",
+        "name": "All Pages",
+        "type": "PAGEVIEW"
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "triggerId": "2",
+        "name": "Initialization - All Pages",
+        "type": "PAGEVIEW",
+        "parameter": [
+          {"type": "template", "key": "triggerType", "value": "INIT"}
+        ]
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "triggerId": "3",
+        "name": "Clique - Botão WhatsApp",
+        "type": "CLICK",
+        "parameter": [
+          {"type": "boolean", "key": "waitForTags", "value": "true"},
+          {"type": "template", "key": "waitForTagsTimeout", "value": "2000"},
+          {"type": "boolean", "key": "checkValidation", "value": "false"},
+          {
+            "type": "list",
+            "key": "filters",
+            "list": [
+              {
+                "type": "map",
+                "map": [
+                  {"type": "template", "key": "type", "value": "CONTAINS"},
+                  {"type": "template", "key": "attribute", "value": "{{Click URL}}"},
+                  {"type": "template", "key": "value", "value": "wa.me"}
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": "Dispara em qualquer clique num link do WhatsApp (wa.me)."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "triggerId": "4",
+        "name": "Clique - Botão SOLICITAR ORÇAMENTO",
+        "type": "CLICK",
+        "parameter": [
+          {"type": "boolean", "key": "waitForTags", "value": "true"},
+          {"type": "template", "key": "waitForTagsTimeout", "value": "2000"},
+          {"type": "boolean", "key": "checkValidation", "value": "false"},
+          {
+            "type": "list",
+            "key": "filters",
+            "list": [
+              {
+                "type": "map",
+                "map": [
+                  {"type": "template", "key": "type", "value": "CONTAINS"},
+                  {"type": "template", "key": "attribute", "value": "{{Click Text}}"},
+                  {"type": "template", "key": "value", "value": "SOLICITAR"}
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": "Dispara em cliques em botões que contenham 'SOLICITAR' no texto."
+      }
+    ],
+    "tag": [
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "1",
+        "name": "Google Tag",
+        "type": "googtag",
+        "parameter": [
+          {"type": "template", "key": "tagId", "value": "{{Google Ads - Tag ID}}"}
+        ],
+        "firingTriggerId": ["2"],
+        "notes": "Tag base do Google. Inicializa Google Ads e GA4. Deve disparar na INICIALIZAÇÃO (antes de todas as outras tags)."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "2",
+        "name": "Vinculador de Conversões",
+        "type": "awct",
+        "parameter": [
+          {"type": "boolean", "key": "enableCrossDomainLinking", "value": "false"},
+          {"type": "boolean", "key": "enableUrlPassthrough", "value": "false"}
+        ],
+        "firingTriggerId": ["1"],
+        "notes": "Preserva o GCLID em cookie (_gcl_aw) para atribuição correta do Google Ads. OBRIGATÓRIO — sem ele as conversões não são atribuídas ao anúncio."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "3",
+        "name": "Google Ads - Conversão Botão WhatsApp",
+        "type": "awconv",
+        "parameter": [
+          {"type": "template", "key": "conversionId", "value": "{{Google Ads - Tag ID}}"},
+          {"type": "template", "key": "conversionLabel", "value": "{{Google Ads - Label Botão}}"},
+          {"type": "template", "key": "conversionValue", "value": "0"},
+          {"type": "template", "key": "currencyCode", "value": "BRL"},
+          {
+            "type": "list",
+            "key": "userDataLines",
+            "list": []
+          }
+        ],
+        "firingTriggerId": ["3", "4"],
+        "tagFiringOption": "ONCE_PER_EVENT",
+        "notes": "Registra conversão no Google Ads quando visitante clica em botão de WhatsApp ou SOLICITAR ORÇAMENTO."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "4",
+        "name": "GA4 - PageView",
+        "type": "gaawc",
+        "parameter": [
+          {"type": "template", "key": "measurementId", "value": "{{GA4 - Measurement ID}}"},
+          {"type": "boolean", "key": "sendPageView", "value": "true"}
+        ],
+        "firingTriggerId": ["1"],
+        "notes": "Envia PageView para o GA4. Dados de analytics e audiências para Google Ads."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "5",
+        "name": "GA4 - Lead (Botão WhatsApp)",
+        "type": "gaawc",
+        "parameter": [
+          {"type": "template", "key": "measurementId", "value": "{{GA4 - Measurement ID}}"},
+          {"type": "boolean", "key": "sendPageView", "value": "false"},
+          {"type": "template", "key": "eventName", "value": "generate_lead"}
+        ],
+        "firingTriggerId": ["3", "4"],
+        "notes": "Envia evento generate_lead para GA4 quando clica em botão WhatsApp. Usado para audiências e relatórios."
+      }
+    ]
+  }
+}

@@ -1,15 +1,52 @@
 """
 Trivo CAPI — Servidor multi-tenant de rastreamento
-Recebe eventos do GTM e reenvia para Meta CAPI + Google Ads.
+Recebe eventos do GTM e reenvia para Meta CAPI e/ou Google Ads.
 
-Cada cliente é identificado pelo seu PIXEL_ID da Meta.
+Cada cliente pode ter Meta, Google, ou ambos.
 Um único servidor atende todos os clientes da Trivo.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PROVIDERS SUPORTADOS
+
+Meta (CAPI):
+  pixel_id + meta_token → envia via Meta Conversions API
+
+Google Ads (Enhanced Conversions):
+  google_ads_id + google_conv_id → sobe conversão via API
+  Usa credenciais globais do Render (GOOGLE_*) ou por-cliente.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLIENTES_JSON — campos por cenário
+
+Só Meta:
+  {"id":"wmb","pixel_id":"123","meta_token":"abc"}
+
+Só Google:
+  {"id":"ortoclub","google_ads_id":"6742417809","google_conv_id":"987654321"}
+
+Meta + Google:
+  {"id":"cliente","pixel_id":"123","meta_token":"abc",
+   "google_ads_id":"456","google_conv_id":"987654321"}
+
+CRM adicional (opcional):
+  kommo_token + kommo_subdominio → Kommo
+  bolten_api_key                 → Bolten
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VARIÁVEIS DE AMBIENTE DO RENDER
+
+CLIENTS_JSON              — lista de clientes (JSON)
+GOOGLE_CLIENT_ID          — OAuth do Google Ads (global)
+GOOGLE_CLIENT_SECRET      — OAuth do Google Ads (global)
+GOOGLE_REFRESH_TOKEN      — OAuth do Google Ads (global)
+GOOGLE_DEVELOPER_TOKEN    — developer token Google Ads
+GOOGLE_MCC_ID             — MCC gerenciadora (ex: 5061973846)
+GOOGLE_ADS_API_VERSION    — versão da API (padrão: v21)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CAMADA CRM (desativada por padrão)
 Quando um cliente tiver Kommo ou Bolten:
-  1. Descomentar a rota /webhook/{client_id}/crm
-  2. Adicionar variáveis CRM do cliente no Render
+  1. Descomentar a rota /webhook/{client_id}/kommo (ou /bolten)
+  2. Adicionar variáveis CRM do cliente no CLIENTS_JSON
   3. Apontar webhook do CRM para essa rota
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
@@ -18,21 +55,21 @@ import os
 import json
 import time
 import hashlib
-import hmac
 import logging
 import httpx
+from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Trivo CAPI", version="1.0.0")
+app = FastAPI(title="Trivo CAPI", version="2.0.0")
+
+GOOGLE_ADS_API_VERSION = os.environ.get("GOOGLE_ADS_API_VERSION", "v21")
 
 # ─────────────────────────────────────────────
-# Carrega clientes do ambiente
-# Formato: CLIENTS_JSON = JSON string com lista de clientes
-# Exemplo: [{"id":"wmb","pixel_id":"123","token":"abc","google_id":"456"}]
+# Helpers
 # ─────────────────────────────────────────────
 
 def load_clients() -> dict:
@@ -58,6 +95,99 @@ def normalize_phone(phone: str) -> str:
     return "+" + digits if not digits.startswith("+") else digits
 
 
+async def get_google_access_token(client: dict) -> str | None:
+    """Obtém access_token via refresh_token. Usa credenciais por-cliente ou globais."""
+    client_id = client.get("google_client_id") or os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = client.get("google_client_secret") or os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    refresh_token = client.get("google_refresh_token") or os.environ.get("GOOGLE_REFRESH_TOKEN", "")
+
+    if not all([client_id, client_secret, refresh_token]):
+        return None
+
+    async with httpx.AsyncClient(timeout=10) as http:
+        resp = await http.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            },
+        )
+    if resp.status_code == 200:
+        return resp.json().get("access_token")
+    logger.error(f"Erro ao obter access_token Google: {resp.text}")
+    return None
+
+
+async def enviar_google_ads(client: dict, body: dict) -> dict:
+    """
+    Envia conversão para Google Ads API via uploadClickConversions.
+    Requer: google_ads_id, google_conv_id (ID numérico da conversão).
+    Opcional: gclid no body (para atribuição por clique).
+    """
+    google_ads_id = client.get("google_ads_id", "").replace("-", "")
+    conv_id = client.get("google_conv_id", "")
+    developer_token = os.environ.get("GOOGLE_DEVELOPER_TOKEN", "")
+    mcc_id = client.get("google_mcc_id") or os.environ.get("GOOGLE_MCC_ID", "")
+
+    if not google_ads_id or not conv_id:
+        return {"status": "skip", "motivo": "google_ads_id ou google_conv_id ausentes"}
+
+    if not developer_token:
+        return {"status": "skip", "motivo": "GOOGLE_DEVELOPER_TOKEN não configurado"}
+
+    access_token = await get_google_access_token(client)
+    if not access_token:
+        return {"status": "skip", "motivo": "credenciais Google OAuth não configuradas"}
+
+    gclid = body.get("gclid", "")
+    email = body.get("email", "")
+    phone = body.get("phone", "")
+    value = body.get("value", 0)
+    currency = body.get("currency", "BRL")
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S+00:00")
+
+    conversion = {
+        "conversionAction": f"customers/{google_ads_id}/conversionActions/{conv_id}",
+        "conversionDateTime": now,
+        "conversionValue": float(value) if value else 0.0,
+        "currencyCode": currency,
+    }
+
+    if gclid:
+        conversion["gclid"] = gclid
+
+    # Enhanced Conversions: hash email/phone se disponíveis
+    user_identifiers = []
+    if email:
+        user_identifiers.append({"hashedEmail": hash_value(email)})
+    if phone:
+        user_identifiers.append({"hashedPhoneNumber": hash_value(normalize_phone(phone))})
+    if user_identifiers:
+        conversion["userIdentifiers"] = user_identifiers
+
+    payload = {"conversions": [conversion], "partialFailure": True}
+
+    url = f"https://googleads.googleapis.com/{GOOGLE_ADS_API_VERSION}/customers/{google_ads_id}:uploadClickConversions"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "developer-token": developer_token,
+        "Content-Type": "application/json",
+    }
+    if mcc_id:
+        headers["login-customer-id"] = str(mcc_id)
+
+    async with httpx.AsyncClient(timeout=10) as http:
+        resp = await http.post(url, json=payload, headers=headers)
+
+    if resp.status_code == 200:
+        return {"status": "ok"}
+    else:
+        return {"status": "erro", "detalhe": resp.text[:300]}
+
+
 # ─────────────────────────────────────────────
 # Rota principal: recebe evento do GTM
 # ─────────────────────────────────────────────
@@ -65,21 +195,23 @@ def normalize_phone(phone: str) -> str:
 @app.post("/evento/{client_id}")
 async def receber_evento(client_id: str, request: Request):
     """
-    Recebe um evento disparado pelo GTM e reenvia para Meta CAPI.
+    Recebe um evento disparado pelo GTM.
+    Encaminha para Meta CAPI e/ou Google Ads conforme configuração do cliente.
 
     Payload esperado (JSON):
     {
-        "event_name": "Lead",          // PageView, Lead, Purchase, etc.
-        "event_id": "uid-unico-123",   // para deduplicação com o Pixel
-        "email": "fulano@email.com",   // opcional, melhora o match
-        "phone": "11999998888",        // opcional, melhora o match
-        "value": 0,                    // opcional, para Purchase
-        "currency": "BRL",             // opcional, padrão BRL
-        "source_url": "https://...",   // URL da página
-        "ip": "1.2.3.4",              // IP do usuário
-        "user_agent": "Mozilla/...",   // User-Agent do navegador
-        "fbc": "_fbc_...",             // cookie _fbc (clique no anúncio)
-        "fbp": "_fbp_..."              // cookie _fbp (browser)
+        "event_name": "Lead",           // PageView, Lead, Purchase, etc.
+        "event_id":   "uid-unico-123",  // deduplicação com o Pixel (Meta)
+        "gclid":      "...",            // cookie _gcl_aw (Google Ads)
+        "email":      "...",            // opcional — Advanced Matching / Enhanced Conv.
+        "phone":      "11999998888",    // opcional
+        "value":      0,                // opcional, para Purchase
+        "currency":   "BRL",
+        "source_url": "https://...",
+        "ip":         "1.2.3.4",
+        "user_agent": "Mozilla/...",
+        "fbc":        "_fbc_...",       // cookie Meta
+        "fbp":        "_fbp_..."        // cookie Meta
     }
     """
     clients = load_clients()
@@ -88,11 +220,6 @@ async def receber_evento(client_id: str, request: Request):
         raise HTTPException(status_code=404, detail=f"Cliente '{client_id}' não encontrado")
 
     client = clients[client_id]
-    pixel_id = client.get("pixel_id")
-    token = client.get("meta_token")
-
-    if not pixel_id or not token:
-        raise HTTPException(status_code=500, detail="Pixel ID ou token Meta não configurados")
 
     try:
         body = await request.json()
@@ -101,67 +228,80 @@ async def receber_evento(client_id: str, request: Request):
 
     event_name = body.get("event_name", "Lead")
     event_id = body.get("event_id", str(time.time()))
-    source_url = body.get("source_url", "")
-    ip = body.get("ip", "")
-    user_agent = body.get("user_agent", "")
-    fbc = body.get("fbc", "")
-    fbp = body.get("fbp", "")
-    email = body.get("email", "")
-    phone = body.get("phone", "")
-    value = body.get("value", 0)
-    currency = body.get("currency", "BRL")
+    resultado = {"client": client_id, "event": event_name}
 
-    # Monta user_data com Advanced Matching
-    user_data = {}
-    if email:
-        user_data["em"] = [hash_value(email)]
-    if phone:
-        user_data["ph"] = [hash_value(normalize_phone(phone))]
-    if ip:
-        user_data["client_ip_address"] = ip
-    if user_agent:
-        user_data["client_user_agent"] = user_agent
-    if fbc:
-        user_data["fbc"] = fbc
-    if fbp:
-        user_data["fbp"] = fbp
+    # ── Meta CAPI ─────────────────────────────
+    pixel_id = client.get("pixel_id")
+    meta_token = client.get("meta_token")
 
-    # Monta evento CAPI
-    evento = {
-        "event_name": event_name,
-        "event_time": int(time.time()),
-        "event_id": event_id,
-        "event_source_url": source_url,
-        "action_source": "website",
-        "user_data": user_data,
-    }
+    if pixel_id and meta_token:
+        source_url = body.get("source_url", "")
+        ip = body.get("ip", "")
+        user_agent = body.get("user_agent", "")
+        fbc = body.get("fbc", "")
+        fbp = body.get("fbp", "")
+        email = body.get("email", "")
+        phone = body.get("phone", "")
+        value = body.get("value", 0)
+        currency = body.get("currency", "BRL")
 
-    if event_name == "Purchase" and value:
-        evento["custom_data"] = {"value": value, "currency": currency}
+        user_data = {}
+        if email:
+            user_data["em"] = [hash_value(email)]
+        if phone:
+            user_data["ph"] = [hash_value(normalize_phone(phone))]
+        if ip:
+            user_data["client_ip_address"] = ip
+        if user_agent:
+            user_data["client_user_agent"] = user_agent
+        if fbc:
+            user_data["fbc"] = fbc
+        if fbp:
+            user_data["fbp"] = fbp
 
-    payload = {
-        "data": [evento],
-        "test_event_code": client.get("test_code", ""),
-    }
+        evento = {
+            "event_name": event_name,
+            "event_time": int(time.time()),
+            "event_id": event_id,
+            "event_source_url": source_url,
+            "action_source": "website",
+            "user_data": user_data,
+        }
+        if event_name == "Purchase" and value:
+            evento["custom_data"] = {"value": value, "currency": currency}
 
-    # Remove test_event_code se vazio
-    if not payload["test_event_code"]:
-        del payload["test_event_code"]
+        meta_payload = {"data": [evento]}
+        test_code = client.get("test_code", "")
+        if test_code:
+            meta_payload["test_event_code"] = test_code
 
-    url = f"https://graph.facebook.com/v20.0/{pixel_id}/events?access_token={token}"
+        meta_url = f"https://graph.facebook.com/v20.0/{pixel_id}/events?access_token={meta_token}"
 
-    async with httpx.AsyncClient(timeout=10) as http:
-        resp = await http.post(url, json=payload)
+        async with httpx.AsyncClient(timeout=10) as http:
+            meta_resp = await http.post(meta_url, json=meta_payload)
 
-    if resp.status_code == 200:
-        logger.info(f"[{client_id}] CAPI OK — {event_name} | event_id={event_id}")
-        return {"status": "ok", "event": event_name, "client": client_id}
+        if meta_resp.status_code == 200:
+            logger.info(f"[{client_id}] META CAPI OK — {event_name}")
+            resultado["meta"] = "ok"
+        else:
+            logger.error(f"[{client_id}] META CAPI ERRO — {meta_resp.status_code}: {meta_resp.text[:200]}")
+            resultado["meta"] = f"erro {meta_resp.status_code}"
     else:
-        logger.error(f"[{client_id}] CAPI ERRO — {resp.status_code}: {resp.text}")
-        return JSONResponse(
-            status_code=502,
-            content={"status": "erro_meta", "detalhe": resp.text}
-        )
+        resultado["meta"] = "skip"
+
+    # ── Google Ads ────────────────────────────
+    # Só sobe conversão para eventos que representam ação (não PageView)
+    if event_name != "PageView" and client.get("google_ads_id") and client.get("google_conv_id"):
+        gads_result = await enviar_google_ads(client, body)
+        if gads_result["status"] == "ok":
+            logger.info(f"[{client_id}] GOOGLE ADS OK — {event_name}")
+        elif gads_result["status"] == "erro":
+            logger.error(f"[{client_id}] GOOGLE ADS ERRO — {gads_result.get('detalhe','')}")
+        resultado["google_ads"] = gads_result["status"]
+    else:
+        resultado["google_ads"] = "skip"
+
+    return resultado
 
 
 # ─────────────────────────────────────────────
@@ -170,7 +310,7 @@ async def receber_evento(client_id: str, request: Request):
 
 @app.get("/")
 def root():
-    return {"status": "online", "servico": "Trivo CAPI", "versao": "1.0.0"}
+    return {"status": "online", "servico": "Trivo CAPI", "versao": "2.0.0"}
 
 
 @app.get("/clientes")
@@ -181,8 +321,8 @@ def listar_clientes():
         "clientes": [
             {
                 "id": cid,
-                "pixel_id": c.get("pixel_id", ""),
-                "tem_token": bool(c.get("meta_token")),
+                "meta": bool(c.get("pixel_id") and c.get("meta_token")),
+                "google_ads": bool(c.get("google_ads_id")),
             }
             for cid, c in clients.items()
         ],
@@ -195,12 +335,19 @@ def verificar_cliente(client_id: str):
     if client_id not in clients:
         return {"status": "nao_encontrado", "client_id": client_id}
     c = clients[client_id]
+    tem_meta = bool(c.get("pixel_id") and c.get("meta_token"))
+    tem_google = bool(c.get("google_ads_id"))
+    tem_google_upload = bool(c.get("google_ads_id") and c.get("google_conv_id"))
     return {
         "status": "ok",
         "client_id": client_id,
+        "providers": {
+            "meta_capi": tem_meta,
+            "google_ads_gtm": tem_google,
+            "google_ads_server": tem_google_upload,
+        },
         "pixel_id": c.get("pixel_id", ""),
-        "tem_meta_token": bool(c.get("meta_token")),
-        "tem_google_id": bool(c.get("google_ads_id")),
+        "google_ads_id": c.get("google_ads_id", ""),
     }
 
 
@@ -213,12 +360,13 @@ def verificar_cliente(client_id: str):
 # async def webhook_kommo(client_id: str, request: Request, status: str = "novo"):
 #     """
 #     Recebe webhook do Kommo quando lead muda de etapa.
-#     Envia evento de qualificação ou venda para Meta CAPI.
+#     Busca telefone na API do Kommo e envia para Meta CAPI + Google Ads.
 #
 #     Variáveis necessárias no cliente:
 #       kommo_token, kommo_subdominio
+#     Mapeamento: status=novo → Lead, status=fechado → Purchase
 #     """
-#     # TODO: implementar busca de telefone + envio CAPI
+#     # Ativar: ver ponte-marmoraria/main.py para implementação completa
 #     pass
 
 
@@ -226,10 +374,10 @@ def verificar_cliente(client_id: str):
 # async def webhook_bolten(client_id: str, request: Request, status: str = "novo"):
 #     """
 #     Recebe webhook do Bolten quando lead muda de etapa.
-#     Bolten já envia telefone no JSON — mais simples que Kommo.
+#     Bolten envia telefone diretamente no JSON — mais simples que Kommo.
 #
 #     Variáveis necessárias no cliente:
 #       bolten_api_key
 #     """
-#     # TODO: implementar leitura do JSON + envio CAPI
+#     # Ativar: ver ponte-marmoraria/main.py para implementação completa
 #     pass
