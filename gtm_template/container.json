@@ -1,0 +1,336 @@
+{
+  "exportFormatVersion": 2,
+  "exportTime": "2026-09-21",
+  "containerVersion": {
+    "path": "accounts/0/containers/0/versions/0",
+    "accountId": "0",
+    "containerId": "0",
+    "containerVersionId": "0",
+    "container": {
+      "path": "accounts/0/containers/0",
+      "accountId": "0",
+      "containerId": "0",
+      "name": "Trivo - Template Rastreamento",
+      "publicId": "GTM-TEMPLATE",
+      "usageContext": ["WEB"]
+    },
+    "variable": [
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "1",
+        "name": "Meta - Pixel ID",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "PREENCHER_PIXEL_ID"}],
+        "notes": "Pixel ID da Meta do cliente. Ex: 1234567890"
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "2",
+        "name": "Meta - Access Token",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "PREENCHER_ACCESS_TOKEN"}],
+        "notes": "Token de acesso da API de Conversões da Meta."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "3",
+        "name": "Google Ads - Tag ID",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "AW-PREENCHER"}],
+        "notes": "ID da tag do Google Ads. Ex: AW-18227028875"
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "4",
+        "name": "Google Ads - Label Botão",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "PREENCHER_LABEL"}],
+        "notes": "Rótulo de conversão do botão WhatsApp/SOLICITAR no Google Ads."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "5",
+        "name": "GA4 - Measurement ID",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "G-PREENCHER"}],
+        "notes": "Measurement ID do GA4. Ex: G-ABC123XYZ"
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "6",
+        "name": "Trivo CAPI - Client ID",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "PREENCHER_CLIENT_ID"}],
+        "notes": "ID do cliente no servidor Trivo CAPI. Ex: wmb, jracabamentos"
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "7",
+        "name": "Trivo CAPI - URL",
+        "type": "c",
+        "parameter": [{"type": "template", "key": "value", "value": "https://trivo-capi.onrender.com"}],
+        "notes": "URL do servidor Trivo CAPI. Não alterar."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "8",
+        "name": "Event ID",
+        "type": "jsm",
+        "parameter": [
+          {
+            "type": "template",
+            "key": "javascript",
+            "value": "function() { return (Math.random().toString(36).substring(2) + Date.now().toString(36)); }"
+          }
+        ],
+        "notes": "ID único por evento para deduplicação Pixel + CAPI."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "9",
+        "name": "Cookie - _fbc",
+        "type": "k",
+        "parameter": [
+          {"type": "template", "key": "name", "value": "_fbc"},
+          {"type": "boolean", "key": "decodeCookie", "value": "false"}
+        ],
+        "notes": "Cookie de clique no anúncio da Meta."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "variableId": "10",
+        "name": "Cookie - _fbp",
+        "type": "k",
+        "parameter": [
+          {"type": "template", "key": "name", "value": "_fbp"},
+          {"type": "boolean", "key": "decodeCookie", "value": "false"}
+        ],
+        "notes": "Cookie de browser da Meta."
+      }
+    ],
+    "trigger": [
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "triggerId": "1",
+        "name": "All Pages",
+        "type": "PAGEVIEW"
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "triggerId": "2",
+        "name": "Initialization - All Pages",
+        "type": "PAGEVIEW",
+        "parameter": [
+          {"type": "template", "key": "triggerType", "value": "INIT"}
+        ]
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "triggerId": "3",
+        "name": "Clique - Botão WhatsApp",
+        "type": "CLICK",
+        "parameter": [
+          {"type": "boolean", "key": "waitForTags", "value": "true"},
+          {"type": "template", "key": "waitForTagsTimeout", "value": "2000"},
+          {"type": "boolean", "key": "checkValidation", "value": "false"},
+          {
+            "type": "list",
+            "key": "filters",
+            "list": [
+              {
+                "type": "map",
+                "map": [
+                  {"type": "template", "key": "type", "value": "CONTAINS"},
+                  {"type": "template", "key": "attribute", "value": "{{Click URL}}"},
+                  {"type": "template", "key": "value", "value": "wa.me"}
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": "Dispara em qualquer clique num link do WhatsApp (wa.me)."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "triggerId": "4",
+        "name": "Clique - Botão SOLICITAR ORÇAMENTO",
+        "type": "CLICK",
+        "parameter": [
+          {"type": "boolean", "key": "waitForTags", "value": "true"},
+          {"type": "template", "key": "waitForTagsTimeout", "value": "2000"},
+          {"type": "boolean", "key": "checkValidation", "value": "false"},
+          {
+            "type": "list",
+            "key": "filters",
+            "list": [
+              {
+                "type": "map",
+                "map": [
+                  {"type": "template", "key": "type", "value": "CONTAINS"},
+                  {"type": "template", "key": "attribute", "value": "{{Click Text}}"},
+                  {"type": "template", "key": "value", "value": "SOLICITAR"}
+                ]
+              }
+            ]
+          }
+        ],
+        "notes": "Dispara em cliques em botões que contenham 'SOLICITAR' no texto."
+      }
+    ],
+    "tag": [
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "1",
+        "name": "Meta Pixel - PageView",
+        "type": "html",
+        "parameter": [
+          {
+            "type": "template",
+            "key": "html",
+            "value": "<script>\n!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');\nfbq('init', '{{Meta - Pixel ID}}', {\n  autoConfig: true,\n  debug: false\n});\nfbq('track', 'PageView');\n</script>"
+          },
+          {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}
+        ],
+        "firingTriggerId": ["1"],
+        "notes": "Inicializa o Pixel da Meta e dispara PageView em todas as páginas."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "2",
+        "name": "Meta CAPI - PageView",
+        "type": "html",
+        "parameter": [
+          {
+            "type": "template",
+            "key": "html",
+            "value": "<script>\n(function() {\n  var payload = {\n    event_name: 'PageView',\n    event_id: '{{Event ID}}',\n    source_url: window.location.href,\n    ip: '',\n    user_agent: navigator.userAgent,\n    fbc: '{{Cookie - _fbc}}',\n    fbp: '{{Cookie - _fbp}}'\n  };\n  fetch('{{Trivo CAPI - URL}}/evento/{{Trivo CAPI - Client ID}}', {\n    method: 'POST',\n    headers: {'Content-Type': 'application/json'},\n    body: JSON.stringify(payload),\n    keepalive: true\n  }).catch(function(){});\n})();\n</script>"
+          },
+          {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}
+        ],
+        "firingTriggerId": ["1"],
+        "notes": "Envia PageView para o servidor CAPI da Trivo (server-side)."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "3",
+        "name": "Meta Pixel - Lead (Botão WhatsApp)",
+        "type": "html",
+        "parameter": [
+          {
+            "type": "template",
+            "key": "html",
+            "value": "<script>\nif (typeof fbq !== 'undefined') {\n  fbq('track', 'Lead', {}, {eventID: '{{Event ID}}'});\n}\n</script>"
+          },
+          {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}
+        ],
+        "firingTriggerId": ["3", "4"],
+        "notes": "Dispara evento Lead no Pixel quando clica em botão WhatsApp ou SOLICITAR."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "4",
+        "name": "Meta CAPI - Lead (Botão WhatsApp)",
+        "type": "html",
+        "parameter": [
+          {
+            "type": "template",
+            "key": "html",
+            "value": "<script>\n(function() {\n  var payload = {\n    event_name: 'Lead',\n    event_id: '{{Event ID}}',\n    source_url: window.location.href,\n    user_agent: navigator.userAgent,\n    fbc: '{{Cookie - _fbc}}',\n    fbp: '{{Cookie - _fbp}}'\n  };\n  fetch('{{Trivo CAPI - URL}}/evento/{{Trivo CAPI - Client ID}}', {\n    method: 'POST',\n    headers: {'Content-Type': 'application/json'},\n    body: JSON.stringify(payload),\n    keepalive: true\n  }).catch(function(){});\n})();\n</script>"
+          },
+          {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}
+        ],
+        "firingTriggerId": ["3", "4"],
+        "notes": "Envia evento Lead para CAPI server-side com mesmo event_id do Pixel (deduplicação)."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "5",
+        "name": "Google Tag",
+        "type": "googtag",
+        "parameter": [
+          {"type": "template", "key": "tagId", "value": "{{Google Ads - Tag ID}}"}
+        ],
+        "firingTriggerId": ["2"],
+        "notes": "Tag base do Google. Inicializa Google Ads e GA4."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "6",
+        "name": "Vinculador de Conversões",
+        "type": "awct",
+        "parameter": [
+          {"type": "boolean", "key": "enableCrossDomainLinking", "value": "false"},
+          {"type": "boolean", "key": "enableUrlPassthrough", "value": "false"}
+        ],
+        "firingTriggerId": ["1"],
+        "notes": "Preserva o GCLID em cookie para atribuição correta do Google Ads."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "7",
+        "name": "Google Ads - Conversão Botão WhatsApp",
+        "type": "awconv",
+        "parameter": [
+          {"type": "template", "key": "conversionId", "value": "{{Google Ads - Tag ID}}"},
+          {"type": "template", "key": "conversionLabel", "value": "{{Google Ads - Label Botão}}"},
+          {
+            "type": "list",
+            "key": "userDataLines",
+            "list": []
+          }
+        ],
+        "firingTriggerId": ["3", "4"],
+        "tagFiringOption": "ONCE_PER_EVENT",
+        "notes": "Acompanhamento de conversão do Google Ads quando clica em botão WhatsApp."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "8",
+        "name": "GA4 - PageView",
+        "type": "gaawc",
+        "parameter": [
+          {"type": "template", "key": "measurementId", "value": "{{GA4 - Measurement ID}}"},
+          {"type": "boolean", "key": "sendPageView", "value": "true"}
+        ],
+        "firingTriggerId": ["1"],
+        "notes": "Envia PageView para o GA4."
+      },
+      {
+        "accountId": "0",
+        "containerId": "0",
+        "tagId": "9",
+        "name": "GA4 - Lead (Botão WhatsApp)",
+        "type": "gaawc",
+        "parameter": [
+          {"type": "template", "key": "measurementId", "value": "{{GA4 - Measurement ID}}"},
+          {"type": "boolean", "key": "sendPageView", "value": "false"},
+          {"type": "template", "key": "eventName", "value": "generate_lead"}
+        ],
+        "firingTriggerId": ["3", "4"],
+        "notes": "Envia evento generate_lead para GA4 quando clica em botão WhatsApp."
+      }
+    ]
+  }
+}
