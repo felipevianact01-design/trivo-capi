@@ -52,6 +52,7 @@ Quando um cliente tiver Kommo ou Bolten:
 """
 
 import os
+import re
 import json
 import time
 import hashlib
@@ -59,14 +60,25 @@ import logging
 import httpx
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Trivo CAPI", version="2.0.0")
+app = FastAPI(title="Trivo CAPI", version="2.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 GOOGLE_ADS_API_VERSION = os.environ.get("GOOGLE_ADS_API_VERSION", "v21")
+GTM_ACCOUNT_ID = os.environ.get("GTM_ACCOUNT_ID", "6378805007")
+GA4_ACCOUNT_ID = os.environ.get("GA4_ACCOUNT_ID", "269067750")
+ONBOARDING_KEY = os.environ.get("TRIVO_ONBOARDING_KEY", "")
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -186,6 +198,330 @@ async def enviar_google_ads(client: dict, body: dict) -> dict:
         return {"status": "ok"}
     else:
         return {"status": "erro", "detalhe": resp.text[:300]}
+
+
+# ─────────────────────────────────────────────
+# Onboarding — cria GTM + GA4 para novo cliente
+# ─────────────────────────────────────────────
+
+def _slug(nome: str) -> str:
+    s = nome.lower()
+    for src, dst in [("áàãâä","a"),("éèêë","e"),("íìîï","i"),("óòõôö","o"),("úùûü","u"),("ç","c")]:
+        for c in src:
+            s = s.replace(c, dst)
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    return s.strip("-")
+
+
+async def _gtm_access_token() -> str:
+    token = await get_google_access_token({})
+    if not token:
+        raise HTTPException(status_code=500, detail="Falha ao obter credenciais Google (GTM/GA4)")
+    return token
+
+
+async def _criar_gtm_container(token: str, nome: str, url: str, account_id: str) -> dict:
+    domain = re.sub(r"https?://", "", url).rstrip("/")
+    async with httpx.AsyncClient(timeout=20) as http:
+        r = await http.post(
+            f"https://tagmanager.googleapis.com/tagmanager/v2/accounts/{account_id}/containers",
+            json={"name": nome, "usageContext": ["WEB"], "domainName": [domain]},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        )
+    r.raise_for_status()
+    c = r.json()
+    return {"container_id": c["containerId"], "public_id": c["publicId"]}
+
+
+async def _criar_ga4(token: str, nome: str, url: str, account_id: str) -> dict:
+    domain = re.sub(r"https?://", "", url).rstrip("/")
+    h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=20) as http:
+        r = await http.post(
+            "https://analyticsadmin.googleapis.com/v1beta/properties",
+            json={"parent": f"accounts/{account_id}", "displayName": nome,
+                  "timeZone": "America/Sao_Paulo", "currencyCode": "BRL", "industryCategory": "OTHER"},
+            headers=h,
+        )
+        r.raise_for_status()
+        property_id = r.json()["name"].split("/")[-1]
+        r2 = await http.post(
+            f"https://analyticsadmin.googleapis.com/v1beta/properties/{property_id}/dataStreams",
+            json={"type": "WEB_DATA_STREAM", "displayName": f"{nome} — Web",
+                  "webStreamData": {"defaultUri": f"https://{domain}"}},
+            headers=h,
+        )
+        r2.raise_for_status()
+        measurement_id = r2.json().get("webStreamData", {}).get("measurementId", "")
+    return {"property_id": property_id, "measurement_id": measurement_id}
+
+
+async def _criar_gtm_entities(token: str, account_id: str, container_id: str,
+                               client_id: str, pixel_id: str, google_ads_tag: str,
+                               label: str, measurement_id: str) -> str:
+    """Cria workspace + todas as variáveis, acionadores e tags. Retorna workspace_id."""
+    base = f"https://tagmanager.googleapis.com/tagmanager/v2/accounts/{account_id}/containers/{container_id}"
+    h = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=30) as http:
+
+        ws = await http.post(f"{base}/workspaces",
+                             json={"name": "Trivo Setup", "description": "Criado automaticamente"},
+                             headers=h)
+        ws.raise_for_status()
+        ws_id = ws.json()["workspaceId"]
+        wb = f"{base}/workspaces/{ws_id}"
+
+        # Built-in variables
+        biv_types = ["CLICK_URL", "CLICK_TEXT", "CLICK_ELEMENT", "CLICK_CLASSES", "CLICK_ID", "CLICK_TARGET"]
+        await http.post(wb + "/built_in_variables?" + "&".join(f"type={t}" for t in biv_types), headers=h)
+
+        async def cv(body):
+            r = await http.post(f"{wb}/variables", json=body, headers=h)
+            if r.status_code not in (200, 201):
+                logger.warning(f"variável '{body.get('name')}' retornou {r.status_code}: {r.text[:120]}")
+
+        # Custom variables — Meta
+        if pixel_id:
+            await cv({"name": "Meta - Pixel ID", "type": "c",
+                      "parameter": [{"type": "template", "key": "value", "value": pixel_id}]})
+            await cv({"name": "Event ID", "type": "jsm",
+                      "parameter": [{"type": "template", "key": "javascript",
+                                     "value": "function(){return(Math.random().toString(36).substring(2)+Date.now().toString(36));}"}]})
+            await cv({"name": "Cookie - _fbc", "type": "k",
+                      "parameter": [{"type": "template", "key": "name", "value": "_fbc"},
+                                    {"type": "boolean", "key": "decodeCookie", "value": "false"}]})
+            await cv({"name": "Cookie - _fbp", "type": "k",
+                      "parameter": [{"type": "template", "key": "name", "value": "_fbp"},
+                                    {"type": "boolean", "key": "decodeCookie", "value": "false"}]})
+            await cv({"name": "Trivo CAPI - Client ID", "type": "c",
+                      "parameter": [{"type": "template", "key": "value", "value": client_id}]})
+            await cv({"name": "Trivo CAPI - URL", "type": "c",
+                      "parameter": [{"type": "template", "key": "value", "value": "https://trivo-capi.onrender.com"}]})
+
+        # Custom variables — Google
+        if google_ads_tag:
+            await cv({"name": "Google Ads - Tag ID", "type": "c",
+                      "parameter": [{"type": "template", "key": "value", "value": google_ads_tag}]})
+            if label:
+                await cv({"name": "Google Ads - Label Botão", "type": "c",
+                          "parameter": [{"type": "template", "key": "value", "value": label}]})
+        if measurement_id:
+            await cv({"name": "GA4 - Measurement ID", "type": "c",
+                      "parameter": [{"type": "template", "key": "value", "value": measurement_id}]})
+
+        # Triggers
+        pv = await http.post(f"{wb}/triggers",
+                             json={"name": "All Pages", "type": "PAGEVIEW"}, headers=h)
+        pv.raise_for_status()
+        pv_id = pv.json()["triggerId"]
+
+        wa = await http.post(f"{wb}/triggers", json={
+            "name": "Clique - Botão WhatsApp", "type": "CLICK",
+            "parameter": [
+                {"type": "boolean", "key": "waitForTags", "value": "true"},
+                {"type": "template", "key": "waitForTagsTimeout", "value": "2000"},
+                {"type": "boolean", "key": "checkValidation", "value": "false"},
+                {"type": "list", "key": "filters", "list": [{"type": "map", "map": [
+                    {"type": "template", "key": "type", "value": "CONTAINS"},
+                    {"type": "template", "key": "attribute", "value": "{{Click URL}}"},
+                    {"type": "template", "key": "value", "value": "wa.me"},
+                ]}]},
+            ]}, headers=h)
+        wa.raise_for_status()
+        wa_id = wa.json()["triggerId"]
+
+        sol = await http.post(f"{wb}/triggers", json={
+            "name": "Clique - Botão SOLICITAR ORÇAMENTO", "type": "CLICK",
+            "parameter": [
+                {"type": "boolean", "key": "waitForTags", "value": "true"},
+                {"type": "template", "key": "waitForTagsTimeout", "value": "2000"},
+                {"type": "boolean", "key": "checkValidation", "value": "false"},
+                {"type": "list", "key": "filters", "list": [{"type": "map", "map": [
+                    {"type": "template", "key": "type", "value": "CONTAINS"},
+                    {"type": "template", "key": "attribute", "value": "{{Click Text}}"},
+                    {"type": "template", "key": "value", "value": "SOLICITAR"},
+                ]}]},
+            ]}, headers=h)
+        sol.raise_for_status()
+        sol_id = sol.json()["triggerId"]
+
+        async def ct(body):
+            r = await http.post(f"{wb}/tags", json=body, headers=h)
+            if r.status_code not in (200, 201):
+                logger.warning(f"tag '{body.get('name')}' retornou {r.status_code}: {r.text[:120]}")
+
+        # Tags — Meta
+        if pixel_id:
+            pv_html = (
+                "<script>\n"
+                "!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?"
+                "n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;"
+                "n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;"
+                "t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}"
+                f"(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');\n"
+                f"fbq('init','{pixel_id}');\nfbq('track','PageView');\n</script>"
+            )
+            await ct({"name": "Meta Pixel - PageView", "type": "html",
+                      "parameter": [{"type": "template", "key": "html", "value": pv_html},
+                                    {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}],
+                      "firingTriggerId": [str(pv_id)]})
+
+            capi_pv_html = (
+                "<script>\n(function(){\n"
+                "var p={event_name:'PageView',event_id:'{{Event ID}}',source_url:window.location.href,"
+                "user_agent:navigator.userAgent,fbc:'{{Cookie - _fbc}}',fbp:'{{Cookie - _fbp}}'};\n"
+                "fetch('{{Trivo CAPI - URL}}/evento/{{Trivo CAPI - Client ID}}',"
+                "{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p),keepalive:true})"
+                ".catch(function(){});\n})();\n</script>"
+            )
+            await ct({"name": "Meta CAPI - PageView", "type": "html",
+                      "parameter": [{"type": "template", "key": "html", "value": capi_pv_html},
+                                    {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}],
+                      "firingTriggerId": [str(pv_id)]})
+
+            lead_px_html = (
+                "<script>\n"
+                "if(typeof fbq!=='undefined'){fbq('track','Lead',{},{eventID:'{{Event ID}}'});}\n"
+                "</script>"
+            )
+            await ct({"name": "Meta Pixel - Lead (Botão WhatsApp)", "type": "html",
+                      "parameter": [{"type": "template", "key": "html", "value": lead_px_html},
+                                    {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}],
+                      "firingTriggerId": [str(wa_id), str(sol_id)]})
+
+            lead_capi_html = (
+                "<script>\n(function(){\n"
+                "var p={event_name:'Lead',event_id:'{{Event ID}}',source_url:window.location.href,"
+                "user_agent:navigator.userAgent,fbc:'{{Cookie - _fbc}}',fbp:'{{Cookie - _fbp}}'};\n"
+                "fetch('{{Trivo CAPI - URL}}/evento/{{Trivo CAPI - Client ID}}',"
+                "{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p),keepalive:true})"
+                ".catch(function(){});\n})();\n</script>"
+            )
+            await ct({"name": "Meta CAPI - Lead (Botão WhatsApp)", "type": "html",
+                      "parameter": [{"type": "template", "key": "html", "value": lead_capi_html},
+                                    {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}],
+                      "firingTriggerId": [str(wa_id), str(sol_id)]})
+
+        # Tags — Google
+        if google_ads_tag:
+            await ct({"name": "Google Tag", "type": "googtag",
+                      "parameter": [{"type": "template", "key": "tagId", "value": "{{Google Ads - Tag ID}}"}],
+                      "firingTriggerId": [str(pv_id)]})
+            await ct({"name": "Vinculador de Conversões", "type": "gclidw",
+                      "parameter": [{"type": "boolean", "key": "enableCrossDomainLinking", "value": "false"},
+                                    {"type": "boolean", "key": "enableUrlPassthrough", "value": "false"}],
+                      "firingTriggerId": [str(pv_id)]})
+            await ct({"name": "Google Ads - Conversão Botão WhatsApp", "type": "awct",
+                      "parameter": [{"type": "template", "key": "conversionId", "value": "{{Google Ads - Tag ID}}"},
+                                    {"type": "template", "key": "conversionLabel", "value": "{{Google Ads - Label Botão}}"}],
+                      "firingTriggerId": [str(wa_id), str(sol_id)],
+                      "tagFiringOption": "ONCE_PER_EVENT"})
+
+        # Tags — GA4
+        if measurement_id:
+            await ct({"name": "GA4 - PageView", "type": "gaawc",
+                      "parameter": [{"type": "template", "key": "measurementId", "value": "{{GA4 - Measurement ID}}"},
+                                    {"type": "boolean", "key": "sendPageView", "value": "true"}],
+                      "firingTriggerId": [str(pv_id)]})
+            await ct({"name": "GA4 - Lead (Botão WhatsApp)", "type": "gaawc",
+                      "parameter": [{"type": "template", "key": "measurementId", "value": "{{GA4 - Measurement ID}}"},
+                                    {"type": "boolean", "key": "sendPageView", "value": "false"},
+                                    {"type": "template", "key": "eventName", "value": "generate_lead"}],
+                      "firingTriggerId": [str(wa_id), str(sol_id)]})
+
+    logger.info(f"[onboarding] entities criadas no workspace {ws_id}")
+    return ws_id
+
+
+@app.post("/onboarding")
+async def onboarding(request: Request):
+    """
+    Cria container GTM + propriedade GA4 + todas as tags para um novo cliente.
+    Retorna GTM-ID, Measurement ID e o objeto a adicionar no CLIENTS_JSON.
+
+    Payload:
+      nome, url, pixel_id?, meta_token?, google_ads_tag?, label?
+      gtm_account_id? (default: 6378805007), ga4_account? (default: 269067750)
+    """
+    if ONBOARDING_KEY:
+        if request.headers.get("X-API-Key", "") != ONBOARDING_KEY:
+            raise HTTPException(status_code=401, detail="API key inválida")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payload JSON inválido")
+
+    nome = body.get("nome", "").strip()
+    url = body.get("url", "").strip()
+    if not nome or not url:
+        raise HTTPException(status_code=400, detail="nome e url são obrigatórios")
+
+    pixel_id = body.get("pixel_id", "").strip()
+    meta_token = body.get("meta_token", "").strip()
+    google_ads_tag = body.get("google_ads_tag", "").strip()
+    label = body.get("label", "").strip()
+    gtm_account_id = str(body.get("gtm_account_id", GTM_ACCOUNT_ID))
+    ga4_account_id = str(body.get("ga4_account", GA4_ACCOUNT_ID))
+    client_id = _slug(nome)
+
+    logger.info(f"[onboarding] iniciando para '{nome}' ({client_id})")
+
+    token = await _gtm_access_token()
+    erros = []
+
+    # GA4
+    ga4 = {}
+    try:
+        ga4 = await _criar_ga4(token, nome, url, ga4_account_id)
+        logger.info(f"[onboarding] GA4 property {ga4['property_id']}, measurement {ga4['measurement_id']}")
+    except Exception as e:
+        erros.append(f"GA4: {str(e)[:120]}")
+        logger.error(f"[onboarding] GA4 falhou: {e}")
+
+    # GTM container
+    try:
+        gtm = await _criar_gtm_container(token, nome, url, gtm_account_id)
+        logger.info(f"[onboarding] GTM container {gtm['public_id']}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao criar GTM container: {str(e)[:200]}")
+
+    # GTM entities
+    ws_id = None
+    try:
+        ws_id = await _criar_gtm_entities(
+            token, gtm_account_id, gtm["container_id"],
+            client_id, pixel_id, google_ads_tag, label,
+            ga4.get("measurement_id", ""),
+        )
+    except Exception as e:
+        erros.append(f"GTM entities: {str(e)[:120]}")
+        logger.error(f"[onboarding] GTM entities falhou: {e}")
+
+    # CLIENTS_JSON entry
+    entry: dict = {"id": client_id}
+    if google_ads_tag:
+        entry["google_ads_id"] = google_ads_tag.replace("AW-", "")
+    if pixel_id and meta_token:
+        entry["pixel_id"] = pixel_id
+        entry["meta_token"] = meta_token
+
+    gtm_ui = f"https://tagmanager.google.com/#/container/accounts/{gtm_account_id}/containers/{gtm['container_id']}/workspaces/{ws_id}"
+
+    return {
+        "success": len(erros) == 0,
+        "client_id": client_id,
+        "gtm": {
+            "public_id": gtm["public_id"],
+            "container_id": gtm["container_id"],
+            "workspace_id": ws_id,
+            "ui_url": gtm_ui,
+        },
+        "ga4": ga4,
+        "clients_json_entry": entry,
+        "erros": erros,
+    }
 
 
 # ─────────────────────────────────────────────
