@@ -836,7 +836,7 @@ function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag) {
       {type:"TEMPLATE",key:"measurementId",value:ga4Id},
       {type:"BOOLEAN",key:"sendPageView",value:"true"}
     ],
-    firingTriggerId:[ALL_PAGES],tagFiringOption:"NOT_ONCE_PER_EVENT"
+    firingTriggerId:[ALL_PAGES],tagFiringOption:"oncePerEvent"
   });
   if (pixelId) {
     const html=`<!-- Meta Pixel Code -->\n<script>\n!function(f,b,e,v,n,t,s)\n{if(f.fbq)return;n=f.fbq=function(){n.callMethod?\nn.callMethod.apply(n,arguments):n.queue.push(arguments)};\nif(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';\nn.queue=[];t=b.createElement(e);t.async=!0;\nt.src=v;s=b.getElementsByTagName(e)[0];\ns.parentNode.insertBefore(t,s)}(window,document,'script',\n'https://connect.facebook.net/en_US/fbevents.js');\nfbq('init','${pixelId}');\nfbq('track','PageView');\n<\/script>\n<noscript><img height="1" width="1" style="display:none"\nsrc="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"\n/></noscript>\n<!-- End Meta Pixel Code -->`;
@@ -847,14 +847,14 @@ function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag) {
         {type:"TEMPLATE",key:"html",value:html},
         {type:"BOOLEAN",key:"supportDocumentWrite",value:"false"}
       ],
-      firingTriggerId:[ALL_PAGES],tagFiringOption:"NOT_ONCE_PER_EVENT"
+      firingTriggerId:[ALL_PAGES],tagFiringOption:"oncePerEvent"
     });
   }
   if (adsTag) tags.push({
     accountId:"0",containerId:"0",tagId:String(tid++),
     name:"Google Ads - Conversion Linker",type:"gclidw",
     parameter:[{type:"BOOLEAN",key:"enableCrossDomainLinking",value:"false"}],
-    firingTriggerId:[ALL_PAGES],tagFiringOption:"ONCE_PER_EVENT"
+    firingTriggerId:[ALL_PAGES],tagFiringOption:"oncePerEvent"
   });
   return {
     exportFormatVersion:2, exportTime:now,
