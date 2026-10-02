@@ -743,7 +743,7 @@ async def auth_verify(request: Request):
 # Health check e diagnóstico
 # ─────────────────────────────────────────────
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"status": "online", "servico": "Trivo CAPI", "versao": "2.0.0"}
 
