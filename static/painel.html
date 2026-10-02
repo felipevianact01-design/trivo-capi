@@ -824,38 +824,100 @@ async function loadClients() {
   } catch(e) { console.error('loadClients:', e); }
 }
 
-function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag) {
+function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag, adsLabel) {
   const now = new Date().toISOString().replace('T',' ').slice(0,19);
-  const ALL_PAGES = "2147479553";
+  const T_ALL  = "1";
+  const T_WAPP = "2";
+
+  // Triggers
+  const triggers = [
+    {accountId:"0",containerId:"0",triggerId:T_ALL,name:"All Pages",type:"PAGEVIEW"},
+    {
+      accountId:"0",containerId:"0",triggerId:T_WAPP,
+      name:"WhatsApp - Clique",type:"LINK_CLICK",
+      waitForTags:{type:"BOOLEAN",value:"true"},
+      waitForTagsTimeout:{type:"TEMPLATE",value:"2000"},
+      checkValidation:{type:"BOOLEAN",value:"true"},
+      filter:[{
+        type:"MATCH_REGEX",
+        parameter:[
+          {type:"TEMPLATE",key:"arg0",value:"{{Click URL}}"},
+          {type:"TEMPLATE",key:"arg1",value:"wa\\.me|whatsapp"}
+        ]
+      }]
+    }
+  ];
+
   const tags = [];
   let tid = 1;
-  if (ga4Id) tags.push({
-    accountId:"0",containerId:"0",tagId:String(tid++),
-    name:"GA4 - Configuração",type:"gaawc",
-    parameter:[
-      {type:"TEMPLATE",key:"measurementId",value:ga4Id},
-      {type:"BOOLEAN",key:"sendPageView",value:"true"}
-    ],
-    firingTriggerId:[ALL_PAGES]
-  });
+
+  // GA4 Configuration + Lead event
+  if (ga4Id) {
+    tags.push({
+      accountId:"0",containerId:"0",tagId:String(tid++),
+      name:"GA4 - Configuração",type:"gaawc",
+      parameter:[
+        {type:"TEMPLATE",key:"measurementId",value:ga4Id},
+        {type:"BOOLEAN",key:"sendPageView",value:"true"}
+      ],
+      firingTriggerId:[T_ALL]
+    });
+    tags.push({
+      accountId:"0",containerId:"0",tagId:String(tid++),
+      name:"GA4 - Lead (WhatsApp)",type:"html",
+      parameter:[
+        {type:"TEMPLATE",key:"html",value:`<script>\ngtag('event','generate_lead',{'event_category':'WhatsApp','event_label':'Clique'});\n<\/script>`},
+        {type:"BOOLEAN",key:"supportDocumentWrite",value:"false"}
+      ],
+      firingTriggerId:[T_WAPP]
+    });
+  }
+
+  // Meta Pixel PageView + Lead event
   if (pixelId) {
-    const html=`<!-- Meta Pixel Code -->\n<script>\n!function(f,b,e,v,n,t,s)\n{if(f.fbq)return;n=f.fbq=function(){n.callMethod?\nn.callMethod.apply(n,arguments):n.queue.push(arguments)};\nif(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';\nn.queue=[];t=b.createElement(e);t.async=!0;\nt.src=v;s=b.getElementsByTagName(e)[0];\ns.parentNode.insertBefore(t,s)}(window,document,'script',\n'https://connect.facebook.net/en_US/fbevents.js');\nfbq('init','${pixelId}');\nfbq('track','PageView');\n<\/script>\n<noscript><img height="1" width="1" style="display:none"\nsrc="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"\n/></noscript>\n<!-- End Meta Pixel Code -->`;
+    const pvHtml=`<!-- Meta Pixel Code -->\n<script>\n!function(f,b,e,v,n,t,s)\n{if(f.fbq)return;n=f.fbq=function(){n.callMethod?\nn.callMethod.apply(n,arguments):n.queue.push(arguments)};\nif(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';\nn.queue=[];t=b.createElement(e);t.async=!0;\nt.src=v;s=b.getElementsByTagName(e)[0];\ns.parentNode.insertBefore(t,s)}(window,document,'script',\n'https://connect.facebook.net/en_US/fbevents.js');\nfbq('init','${pixelId}');\nfbq('track','PageView');\n<\/script>\n<noscript><img height="1" width="1" style="display:none"\nsrc="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"\n/></noscript>\n<!-- End Meta Pixel Code -->`;
     tags.push({
       accountId:"0",containerId:"0",tagId:String(tid++),
       name:"Meta Pixel - PageView",type:"html",
       parameter:[
-        {type:"TEMPLATE",key:"html",value:html},
+        {type:"TEMPLATE",key:"html",value:pvHtml},
         {type:"BOOLEAN",key:"supportDocumentWrite",value:"false"}
       ],
-      firingTriggerId:[ALL_PAGES]
+      firingTriggerId:[T_ALL]
+    });
+    tags.push({
+      accountId:"0",containerId:"0",tagId:String(tid++),
+      name:"Meta Pixel - Lead (WhatsApp)",type:"html",
+      parameter:[
+        {type:"TEMPLATE",key:"html",value:"<script>\nfbq('track','Lead');\n<\/script>"},
+        {type:"BOOLEAN",key:"supportDocumentWrite",value:"false"}
+      ],
+      firingTriggerId:[T_WAPP]
     });
   }
-  if (adsTag) tags.push({
-    accountId:"0",containerId:"0",tagId:String(tid++),
-    name:"Google Ads - Conversion Linker",type:"gclidw",
-    parameter:[{type:"BOOLEAN",key:"enableCrossDomainLinking",value:"false"}],
-    firingTriggerId:[ALL_PAGES]
-  });
+
+  // Google Ads Conversion Linker + Lead conversion
+  if (adsTag) {
+    const convId = adsTag.replace(/AW-/,"");
+    tags.push({
+      accountId:"0",containerId:"0",tagId:String(tid++),
+      name:"Google Ads - Conversion Linker",type:"gclidw",
+      parameter:[{type:"BOOLEAN",key:"enableCrossDomainLinking",value:"false"}],
+      firingTriggerId:[T_ALL]
+    });
+    if (adsLabel) {
+      tags.push({
+        accountId:"0",containerId:"0",tagId:String(tid++),
+        name:"Google Ads - Lead (WhatsApp)",type:"awct",
+        parameter:[
+          {type:"TEMPLATE",key:"conversionId",value:convId},
+          {type:"TEMPLATE",key:"conversionLabel",value:adsLabel}
+        ],
+        firingTriggerId:[T_WAPP]
+      });
+    }
+  }
+
   return {
     exportFormatVersion:2, exportTime:now,
     containerVersion:{
@@ -870,11 +932,18 @@ function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag) {
         {accountId:"0",containerId:"0",type:"PAGE_HOSTNAME",name:"Page Hostname"},
         {accountId:"0",containerId:"0",type:"PAGE_PATH",name:"Page Path"},
         {accountId:"0",containerId:"0",type:"REFERRER",name:"Referrer"},
-        {accountId:"0",containerId:"0",type:"EVENT",name:"Event"}
+        {accountId:"0",containerId:"0",type:"EVENT",name:"Event"},
+        {accountId:"0",containerId:"0",type:"CLICK_ELEMENT",name:"Click Element"},
+        {accountId:"0",containerId:"0",type:"CLICK_CLASSES",name:"Click Classes"},
+        {accountId:"0",containerId:"0",type:"CLICK_ID",name:"Click ID"},
+        {accountId:"0",containerId:"0",type:"CLICK_TARGET",name:"Click Target"},
+        {accountId:"0",containerId:"0",type:"CLICK_URL",name:"Click URL"},
+        {accountId:"0",containerId:"0",type:"CLICK_TEXT",name:"Click Text"}
       ],
       tag:tags,
-      trigger:[{accountId:"0",containerId:"0",triggerId:ALL_PAGES,name:"All Pages",type:"PAGEVIEW"}],
-      variable:[], fingerprint:"0"
+      trigger:triggers,
+      variable:[],
+      fingerprint:"0"
     }
   };
 }
@@ -885,12 +954,14 @@ function downloadGTMJson() {
   const ga4Id = document.getElementById('f-ga4').value.trim();
   const pixelId = document.getElementById('prov-meta').checked ? document.getElementById('f-pixel').value.trim() : '';
   const adsTag = document.getElementById('prov-google').checked ? document.getElementById('f-ads-tag').value.trim() : '';
-  const data = buildGTMContainer(nome||'Cliente', gtmId, ga4Id, pixelId, adsTag);
+  const adsLabel = document.getElementById('prov-google').checked ? document.getElementById('f-ads-label').value.trim() : '';
+  const data = buildGTMContainer(nome||'Cliente', gtmId, ga4Id, pixelId, adsTag, adsLabel);
   triggerDownload(`GTM-container-${nome||'cliente'}.json`, JSON.stringify(data, null, 2));
 }
 
 function downloadGTMJsonForClient(c) {
-  const data = buildGTMContainer(c.id, c.gtm_id||'', c.ga4_id||'', c.pixel_id||'', c.google_ads_id ? 'AW-'+c.google_ads_id : '');
+  const adsTag = c.google_ads_tag || (c.google_ads_id ? 'AW-'+c.google_ads_id : '');
+  const data = buildGTMContainer(c.id, c.gtm_id||'', c.ga4_id||'', c.pixel_id||'', adsTag, c.google_ads_label||'');
   triggerDownload(`GTM-container-${c.id}.json`, JSON.stringify(data, null, 2));
 }
 
@@ -939,7 +1010,8 @@ async function startOnboarding() {
   if (gtmId) payload.gtm_id=gtmId;
   if (ga4Id) payload.ga4_id=ga4Id;
   if (hasMeta){payload.pixel_id=pixelId;payload.meta_token=tok;}
-  if (hasGoog){payload.google_ads_tag=adsTag;}
+  const adsLabel=document.getElementById('f-ads-label').value.trim();
+  if (hasGoog){payload.google_ads_tag=adsTag; if(adsLabel) payload.google_ads_label=adsLabel;}
   logSet('log-render','active','Salvando cliente no servidor...');
   try {
     const resp = await fetch(`${API}/onboarding`,{

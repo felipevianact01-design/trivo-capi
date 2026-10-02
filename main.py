@@ -514,12 +514,13 @@ async def onboarding(request: Request):
     if not nome or not url:
         raise HTTPException(status_code=400, detail="nome e url são obrigatórios")
 
-    gtm_id        = body.get("gtm_id", "").strip()
-    ga4_id        = body.get("ga4_id", "").strip()
-    pixel_id      = body.get("pixel_id", "").strip()
-    meta_token    = body.get("meta_token", "").strip()
-    google_ads_tag = body.get("google_ads_tag", "").strip()
-    client_id     = _slug(nome)
+    gtm_id          = body.get("gtm_id", "").strip()
+    ga4_id          = body.get("ga4_id", "").strip()
+    pixel_id        = body.get("pixel_id", "").strip()
+    meta_token      = body.get("meta_token", "").strip()
+    google_ads_tag  = body.get("google_ads_tag", "").strip()
+    google_ads_label = body.get("google_ads_label", "").strip()
+    client_id       = _slug(nome)
 
     logger.info(f"[onboarding] registrando '{nome}' ({client_id})")
 
@@ -532,7 +533,10 @@ async def onboarding(request: Request):
         entry["pixel_id"]    = pixel_id
         entry["meta_token"]  = meta_token
     if google_ads_tag:
-        entry["google_ads_id"] = google_ads_tag.replace("AW-", "")
+        entry["google_ads_id"]  = google_ads_tag.replace("AW-", "")
+        entry["google_ads_tag"] = google_ads_tag
+        if google_ads_label:
+            entry["google_ads_label"] = google_ads_label
 
     render_result = await _atualizar_render_clients_json(entry)
     render_ok = render_result["status"] == "ok"
@@ -839,6 +843,8 @@ async def listar_clientes(request: Request):
                 "ga4_id": c.get("ga4_id", ""),
                 "pixel_id": c.get("pixel_id", ""),
                 "google_ads_id": c.get("google_ads_id", ""),
+                "google_ads_tag": c.get("google_ads_tag", ""),
+                "google_ads_label": c.get("google_ads_label", ""),
                 "meta": bool(c.get("pixel_id") and c.get("meta_token")),
                 "google_ads": bool(c.get("google_ads_id")),
             }
