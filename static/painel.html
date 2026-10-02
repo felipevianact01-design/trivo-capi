@@ -301,6 +301,61 @@ code {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Checklist ── */
+.checklist { display: flex; flex-direction: column; gap: 10px; }
+.check-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 14px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+.check-item:hover { border-color: var(--border-strong); background: rgba(255,255,255,0.06); }
+.check-item.checked { border-color: rgba(52,211,153,0.4); background: rgba(52,211,153,0.07); }
+.check-item input[type=checkbox] { display: none; }
+.check-box {
+  width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0;
+  border: 2px solid var(--border-strong);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+}
+.check-item.checked .check-box { background: var(--success); border-color: var(--success); }
+.check-box-tick { color: #fff; font-size: 12px; font-weight: 700; display: none; }
+.check-item.checked .check-box-tick { display: block; }
+.check-label { font-size: 13px; flex: 1; line-height: 1.4; }
+.check-item.checked .check-label { color: var(--fg-muted); }
+
+/* ── Clients panel ── */
+.clients-grid { display: flex; flex-direction: column; gap: 10px; }
+.client-card {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border-radius: 12px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  transition: border-color 0.15s;
+}
+.client-card:hover { border-color: var(--border-strong); }
+.client-avatar {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: var(--accent-light); border: 1px solid rgba(79,110,247,0.25);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px; flex-shrink: 0;
+}
+.client-info { flex: 1; min-width: 0; }
+.client-name { font-size: 14px; font-weight: 600; }
+.client-meta { font-size: 11px; color: var(--fg-muted); margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; }
+.client-badge {
+  background: var(--surface-3); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 7px; font-size: 11px;
+}
+.client-badge.active { color: var(--success); border-color: rgba(52,211,153,0.3); }
+.btn-dl {
+  background: rgba(255,255,255,0.06); border: 1px solid var(--border-strong);
+  border-radius: 8px; color: var(--fg-muted); padding: 6px 12px;
+  font-size: 12px; font-family: inherit; cursor: pointer; white-space: nowrap;
+  transition: background 0.12s, color 0.12s; flex-shrink: 0;
+}
+.btn-dl:hover { background: var(--accent-light); color: var(--accent); border-color: rgba(79,110,247,0.4); }
+
 [hidden] { display: none !important; }
 </style>
 
@@ -385,6 +440,17 @@ code {
     </div>
   </div>
 
+  <!-- Clients panel -->
+  <div class="glass card" id="clients-card" hidden>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <p class="section-label" style="margin:0">Clientes cadastrados</p>
+      <button class="btn-ghost" onclick="loadClients()" style="font-size:11px">↻ Atualizar</button>
+    </div>
+    <div class="clients-grid" id="clients-list">
+      <p style="font-size:13px;color:var(--fg-muted);margin:0">Nenhum cliente cadastrado ainda.</p>
+    </div>
+  </div>
+
   <!-- Form -->
   <div class="glass card" id="form-card">
     <p class="section-label"><span class="step-pill">1</span> Informações do cliente</p>
@@ -450,9 +516,39 @@ code {
       </div>
     </div>
 
-    <div>
-      <button class="btn-primary" id="btn-start" onclick="startOnboarding()">
+    <!-- Checklist pré-salvar -->
+    <div style="border-top:1px solid var(--border);padding-top:18px;margin-top:4px">
+      <p class="field-label" style="margin-bottom:10px">Confirme antes de salvar:</p>
+      <div class="checklist" id="pre-checklist">
+        <label class="check-item" onclick="toggleCheck(this)">
+          <input type="checkbox" class="pre-check">
+          <span class="check-box"><span class="check-box-tick">✓</span></span>
+          <span class="check-label">Container GTM criado no Google Tag Manager e ID informado acima</span>
+        </label>
+        <label class="check-item" onclick="toggleCheck(this)">
+          <input type="checkbox" class="pre-check">
+          <span class="check-box"><span class="check-box-tick">✓</span></span>
+          <span class="check-label">Propriedade GA4 criada no Google Analytics e Measurement ID informado acima</span>
+        </label>
+        <label class="check-item" id="chk-meta" onclick="toggleCheck(this)">
+          <input type="checkbox" class="pre-check">
+          <span class="check-box"><span class="check-box-tick">✓</span></span>
+          <span class="check-label">Pixel ID e Token de Acesso (CAPI) conferidos no Gerenciador de Eventos</span>
+        </label>
+        <label class="check-item" id="chk-google" style="display:none" onclick="toggleCheck(this)">
+          <input type="checkbox" class="pre-check">
+          <span class="check-box"><span class="check-box-tick">✓</span></span>
+          <span class="check-label">Tag ID do Google Ads confirmada na conta</span>
+        </label>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button class="btn-primary" id="btn-start" onclick="startOnboarding()" disabled style="opacity:0.4;cursor:not-allowed">
         Salvar rastreamento
+      </button>
+      <button class="btn-ghost" id="btn-dl-gtm" onclick="downloadGTMJson()" style="display:none">
+        ⬇ Baixar container.json para GTM
       </button>
     </div>
   </div>
@@ -590,6 +686,7 @@ function showApp(username) {
   document.getElementById('login-screen').hidden = true;
   document.getElementById('app-screen').hidden = false;
   document.getElementById('header-username').textContent = username;
+  loadClients();
 }
 async function doLogin() {
   const username = document.getElementById('l-user').value.trim();
@@ -667,10 +764,143 @@ async function doRegister() {
   btn.disabled = false; btn.textContent = 'Criar conta';
 }
 
-document.getElementById('prov-meta').addEventListener('change', e => { document.getElementById('meta-panel').hidden = !e.target.checked; });
-document.getElementById('prov-google').addEventListener('change', e => { document.getElementById('google-panel').hidden = !e.target.checked; });
-// Painel Meta começa visível
+document.getElementById('prov-meta').addEventListener('change', e => {
+  document.getElementById('meta-panel').hidden = !e.target.checked;
+  document.getElementById('chk-meta').style.display = e.target.checked ? '' : 'none';
+  if (!e.target.checked) { const c=document.getElementById('chk-meta'); c.classList.remove('checked'); c.querySelector('input').checked=false; }
+  updateSaveBtn();
+});
+document.getElementById('prov-google').addEventListener('change', e => {
+  document.getElementById('google-panel').hidden = !e.target.checked;
+  document.getElementById('chk-google').style.display = e.target.checked ? '' : 'none';
+  if (!e.target.checked) { const c=document.getElementById('chk-google'); c.classList.remove('checked'); c.querySelector('input').checked=false; }
+  updateSaveBtn();
+});
+// Meta começa visível
 document.getElementById('meta-panel').hidden = false;
+
+function toggleCheck(el) {
+  const cb = el.querySelector('input[type=checkbox]');
+  cb.checked = !cb.checked;
+  el.classList.toggle('checked', cb.checked);
+  updateSaveBtn();
+}
+function updateSaveBtn() {
+  const visibleChecks = Array.from(document.querySelectorAll('#pre-checklist .check-item'))
+    .filter(el => el.style.display !== 'none');
+  const allChecked = visibleChecks.every(el => el.classList.contains('checked'));
+  const btn = document.getElementById('btn-start');
+  btn.disabled = !allChecked;
+  btn.style.opacity = allChecked ? '1' : '0.4';
+  btn.style.cursor  = allChecked ? 'pointer' : 'not-allowed';
+}
+
+async function loadClients() {
+  try {
+    const r = await fetch(`${API}/clientes`, { headers: { Authorization: `Bearer ${gToken}` } });
+    if (!r.ok) return;
+    const d = await r.json();
+    const card = document.getElementById('clients-card');
+    const list = document.getElementById('clients-list');
+    if (!d.clientes || d.clientes.length === 0) {
+      card.hidden = true; return;
+    }
+    card.hidden = false;
+    list.innerHTML = d.clientes.map(c => {
+      const badges = [];
+      if (c.gtm_id) badges.push(`<span class="client-badge active">${c.gtm_id}</span>`);
+      if (c.ga4_id) badges.push(`<span class="client-badge active">${c.ga4_id}</span>`);
+      if (c.meta)   badges.push(`<span class="client-badge active">Meta CAPI</span>`);
+      if (c.google_ads) badges.push(`<span class="client-badge active">Google Ads</span>`);
+      return `<div class="client-card">
+        <div class="client-avatar">🏢</div>
+        <div class="client-info">
+          <div class="client-name">${c.id}</div>
+          <div class="client-meta">${badges.join('')}</div>
+        </div>
+        <button class="btn-dl" onclick='downloadGTMJsonForClient(${JSON.stringify(c)})'>⬇ GTM JSON</button>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error('loadClients:', e); }
+}
+
+function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag) {
+  const now = new Date().toISOString().replace('T',' ').slice(0,19);
+  const ALL_PAGES = "2147479553";
+  const tags = [];
+  let tid = 1;
+  if (ga4Id) tags.push({
+    accountId:"0",containerId:"0",tagId:String(tid++),
+    name:"GA4 - Configuração",type:"gaawc",
+    parameter:[
+      {type:"TEMPLATE",key:"measurementId",value:ga4Id},
+      {type:"BOOLEAN",key:"sendPageView",value:"true"}
+    ],
+    firingTriggerId:[ALL_PAGES],tagFiringOption:"NOT_ONCE_PER_EVENT"
+  });
+  if (pixelId) {
+    const html=`<!-- Meta Pixel Code -->\n<script>\n!function(f,b,e,v,n,t,s)\n{if(f.fbq)return;n=f.fbq=function(){n.callMethod?\nn.callMethod.apply(n,arguments):n.queue.push(arguments)};\nif(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';\nn.queue=[];t=b.createElement(e);t.async=!0;\nt.src=v;s=b.getElementsByTagName(e)[0];\ns.parentNode.insertBefore(t,s)}(window,document,'script',\n'https://connect.facebook.net/en_US/fbevents.js');\nfbq('init','${pixelId}');\nfbq('track','PageView');\n<\/script>\n<noscript><img height="1" width="1" style="display:none"\nsrc="https://www.facebook.com/tr?id=${pixelId}&ev=PageView&noscript=1"\n/></noscript>\n<!-- End Meta Pixel Code -->`;
+    tags.push({
+      accountId:"0",containerId:"0",tagId:String(tid++),
+      name:"Meta Pixel - PageView",type:"html",
+      parameter:[
+        {type:"TEMPLATE",key:"html",value:html},
+        {type:"BOOLEAN",key:"supportDocumentWrite",value:"false"}
+      ],
+      firingTriggerId:[ALL_PAGES],tagFiringOption:"NOT_ONCE_PER_EVENT"
+    });
+  }
+  if (adsTag) tags.push({
+    accountId:"0",containerId:"0",tagId:String(tid++),
+    name:"Google Ads - Conversion Linker",type:"gclidw",
+    parameter:[{type:"BOOLEAN",key:"enableCrossDomainLinking",value:"false"}],
+    firingTriggerId:[ALL_PAGES],tagFiringOption:"ONCE_PER_EVENT"
+  });
+  return {
+    exportFormatVersion:2, exportTime:now,
+    containerVersion:{
+      path:"accounts/0/containers/0/versions/0",
+      accountId:"0",containerId:"0",containerVersionId:"0",
+      container:{
+        path:"accounts/0/containers/0",accountId:"0",containerId:"0",
+        name:nome, publicId:gtmId||"", usageContext:["WEB"]
+      },
+      builtInVariable:[
+        {accountId:"0",containerId:"0",type:"PAGE_URL",name:"Page URL"},
+        {accountId:"0",containerId:"0",type:"PAGE_HOSTNAME",name:"Page Hostname"},
+        {accountId:"0",containerId:"0",type:"PAGE_PATH",name:"Page Path"},
+        {accountId:"0",containerId:"0",type:"REFERRER",name:"Referrer"},
+        {accountId:"0",containerId:"0",type:"EVENT",name:"Event"}
+      ],
+      tag:tags,
+      trigger:[{accountId:"0",containerId:"0",triggerId:ALL_PAGES,name:"All Pages",type:"PAGEVIEW"}],
+      variable:[], fingerprint:"0"
+    }
+  };
+}
+
+function downloadGTMJson() {
+  const nome = document.getElementById('f-nome').value.trim();
+  const gtmId = document.getElementById('f-gtm').value.trim();
+  const ga4Id = document.getElementById('f-ga4').value.trim();
+  const pixelId = document.getElementById('prov-meta').checked ? document.getElementById('f-pixel').value.trim() : '';
+  const adsTag = document.getElementById('prov-google').checked ? document.getElementById('f-ads-tag').value.trim() : '';
+  const data = buildGTMContainer(nome||'Cliente', gtmId, ga4Id, pixelId, adsTag);
+  triggerDownload(`GTM-container-${nome||'cliente'}.json`, JSON.stringify(data, null, 2));
+}
+
+function downloadGTMJsonForClient(c) {
+  const data = buildGTMContainer(c.id, c.gtm_id||'', c.ga4_id||'', c.pixel_id||'', c.google_ads_id ? 'AW-'+c.google_ads_id : '');
+  triggerDownload(`GTM-container-${c.id}.json`, JSON.stringify(data, null, 2));
+}
+
+function triggerDownload(filename, content) {
+  const blob = new Blob([content], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 function logSet(id, state, text) {
   const el = document.getElementById(id); if (!el) return;
@@ -742,6 +972,8 @@ async function startOnboarding() {
     document.getElementById('steps-card').hidden=false;
     document.getElementById('val-card').hidden=false;
     document.getElementById('results-card').scrollIntoView({behavior:'smooth',block:'start'});
+    document.getElementById('btn-dl-gtm').style.display = '';
+    loadClients();
   } catch(e) { logSet('log-render','fail'); showError('Erro ao conectar ao Trivo CAPI: '+e.message); }
 }
 async function doValidate() {

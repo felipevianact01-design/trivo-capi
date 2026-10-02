@@ -820,13 +820,25 @@ def painel():
 
 
 @app.get("/clientes")
-def listar_clientes():
+async def listar_clientes(request: Request):
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    users = _load_users()
+    valid = any(_make_token(u["username"]) == token for u in users) if users else (
+        bool(ONBOARDING_USER) and _make_token(ONBOARDING_USER) == token
+    )
+    if not valid:
+        raise HTTPException(status_code=401, detail="Token inválido")
     clients = load_clients()
     return {
         "total": len(clients),
         "clientes": [
             {
                 "id": cid,
+                "gtm_id": c.get("gtm_id", ""),
+                "ga4_id": c.get("ga4_id", ""),
+                "pixel_id": c.get("pixel_id", ""),
+                "google_ads_id": c.get("google_ads_id", ""),
                 "meta": bool(c.get("pixel_id") and c.get("meta_token")),
                 "google_ads": bool(c.get("google_ads_id")),
             }
