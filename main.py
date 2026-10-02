@@ -601,8 +601,10 @@ async def receber_evento(client_id: str, request: Request):
 
     if pixel_id and meta_token:
         source_url = body.get("source_url", "")
-        ip = body.get("ip", "")
-        user_agent = body.get("user_agent", "")
+        ip = (body.get("ip", "")
+              or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+              or (request.client.host if request.client else ""))
+        user_agent = body.get("user_agent", "") or request.headers.get("user-agent", "")
         fbc = body.get("fbc", "")
         fbp = body.get("fbp", "")
         email = body.get("email", "")
