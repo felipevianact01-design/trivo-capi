@@ -61,7 +61,7 @@ import httpx
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -746,6 +746,11 @@ async def auth_verify(request: Request):
 @app.api_route("/", methods=["GET", "HEAD"])
 def root():
     return {"status": "online", "servico": "Trivo CAPI", "versao": "2.0.0"}
+
+
+@app.get("/painel")
+def painel():
+    return FileResponse("static/painel.html", media_type="text/html")
 
 
 @app.get("/clientes")
