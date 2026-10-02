@@ -81,6 +81,8 @@ GA4_ACCOUNT_ID = os.environ.get("GA4_ACCOUNT_ID", "269067750")
 ONBOARDING_KEY = os.environ.get("TRIVO_ONBOARDING_KEY", "")
 RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_ID = os.environ.get("RENDER_SERVICE_ID", "")
+ONBOARDING_USER = os.environ.get("ONBOARDING_USER", "")
+ONBOARDING_PASS = os.environ.get("ONBOARDING_PASS", "")
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -695,6 +697,46 @@ async def receber_evento(client_id: str, request: Request):
         resultado["google_ads"] = "skip"
 
     return resultado
+
+
+# ─────────────────────────────────────────────
+# Autenticação do painel de onboarding
+# ─────────────────────────────────────────────
+
+@app.post("/login")
+async def login(request: Request):
+    """Valida usuário e senha para o painel de onboarding."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payload inválido")
+
+    username = body.get("username", "").strip()
+    password = body.get("password", "").strip()
+
+    if not ONBOARDING_USER or not ONBOARDING_PASS:
+        raise HTTPException(status_code=503, detail="Autenticação não configurada no servidor")
+
+    if username != ONBOARDING_USER or password != ONBOARDING_PASS:
+        raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
+
+    import hashlib, time as _time
+    token = hashlib.sha256(f"{username}:{password}:{RENDER_API_KEY or 'trivo'}".encode()).hexdigest()
+    return {"token": token, "username": username}
+
+
+@app.get("/auth/verify")
+async def auth_verify(request: Request):
+    """Verifica se um token de sessão é válido."""
+    import hashlib
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    if not ONBOARDING_USER or not ONBOARDING_PASS:
+        raise HTTPException(status_code=503, detail="Autenticação não configurada")
+    expected = hashlib.sha256(f"{ONBOARDING_USER}:{ONBOARDING_PASS}:{RENDER_API_KEY or 'trivo'}".encode()).hexdigest()
+    if token != expected:
+        raise HTTPException(status_code=401, detail="Token inválido")
+    return {"valid": True}
 
 
 # ─────────────────────────────────────────────
