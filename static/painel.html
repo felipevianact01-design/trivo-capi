@@ -391,20 +391,37 @@ code {
     <div class="two-col">
       <div class="field">
         <label class="field-label" for="f-nome">Nome do cliente</label>
-        <input type="text" id="f-nome" placeholder="Ex: Maram Revest" autocomplete="off">
+        <input type="text" id="f-nome" placeholder="Ex: Marmoraria Picoli" autocomplete="off">
       </div>
       <div class="field">
         <label class="field-label" for="f-url">URL do site</label>
         <input type="url" id="f-url" placeholder="https://cliente.com.br" autocomplete="off">
       </div>
     </div>
-    <div class="field">
-      <label class="field-label">Plataformas</label>
-      <div class="providers">
-        <label class="prov-chip"><input type="checkbox" id="prov-meta" checked> 🔵 Meta Pixel + CAPI</label>
-        <label class="prov-chip"><input type="checkbox" id="prov-google"> 🟢 Google Ads + GA4</label>
+
+    <!-- GTM + GA4 -->
+    <div class="sub-panel">
+      <span class="sub-panel-title">📦 Google Tag Manager + GA4</span>
+      <div class="two-col">
+        <div class="field">
+          <label class="field-label" for="f-gtm">Container ID do GTM</label>
+          <input type="text" id="f-gtm" placeholder="GTM-XXXXXXX" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-ga4">Measurement ID do GA4</label>
+          <input type="text" id="f-ga4" placeholder="G-XXXXXXXXXX" autocomplete="off">
+        </div>
       </div>
     </div>
+
+    <div class="field">
+      <label class="field-label">Plataformas de anúncio</label>
+      <div class="providers">
+        <label class="prov-chip"><input type="checkbox" id="prov-meta" checked> 🔵 Meta Pixel + CAPI</label>
+        <label class="prov-chip"><input type="checkbox" id="prov-google"> 🟢 Google Ads</label>
+      </div>
+    </div>
+
     <div class="sub-panel" id="meta-panel">
       <span class="sub-panel-title">🔵 Meta</span>
       <div class="two-col">
@@ -418,8 +435,9 @@ code {
         </div>
       </div>
     </div>
+
     <div class="sub-panel" id="google-panel" hidden>
-      <span class="sub-panel-title">🟢 Google Ads + GA4</span>
+      <span class="sub-panel-title">🟢 Google Ads</span>
       <div class="two-col">
         <div class="field">
           <label class="field-label" for="f-ads-tag">Tag ID Google Ads</label>
@@ -431,32 +449,21 @@ code {
         </div>
       </div>
     </div>
+
     <div>
       <button class="btn-primary" id="btn-start" onclick="startOnboarding()">
-        Criar rastreamento
+        Salvar rastreamento
       </button>
     </div>
   </div>
 
   <!-- Progress -->
   <div class="glass card" id="prog-card" hidden>
-    <p class="section-label"><span class="spin" style="color:var(--accent)"></span> Configurando...</p>
+    <p class="section-label"><span class="spin" style="color:var(--accent)"></span> Salvando...</p>
     <div class="prog-log">
-      <div class="log-row active" id="log-ga4">
+      <div class="log-row active" id="log-render">
         <span class="log-icon"><span class="spin" style="color:var(--accent)"></span></span>
-        Criando propriedade GA4...
-      </div>
-      <div class="log-row" id="log-gtm">
-        <span class="log-icon" style="color:rgba(255,255,255,0.15)">○</span>
-        Criando container GTM...
-      </div>
-      <div class="log-row" id="log-tags">
-        <span class="log-icon" style="color:rgba(255,255,255,0.15)">○</span>
-        Configurando tags, acionadores e variáveis...
-      </div>
-      <div class="log-row" id="log-render">
-        <span class="log-icon" style="color:rgba(255,255,255,0.15)">○</span>
-        Atualizando Render (CLIENTS_JSON)...
+        Salvando cliente no servidor...
       </div>
     </div>
   </div>
@@ -495,18 +502,8 @@ code {
       <div class="step-row">
         <div class="step-num">1</div>
         <div class="step-body">
-          <div class="step-title">Publicar o container no GTM</div>
-          <div class="step-desc">
-            Abra o container, clique em <strong>Enviar → Publicar</strong>.<br>
-            <a id="gtm-link" href="https://tagmanager.google.com" target="_blank">Abrir no Google Tag Manager →</a>
-          </div>
-        </div>
-      </div>
-      <div class="step-row">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          <div class="step-title">Instalar no WordPress</div>
-          <div class="step-desc">Plugin <strong>GTM4WP</strong> → cole o ID:</div>
+          <div class="step-title">Instalar o GTM no WordPress</div>
+          <div class="step-desc">Plugin <strong>GTM4WP</strong> → cole o ID do container:</div>
           <div class="code-block">
             <pre id="code-gtm-id">GTM-XXXXXXX</pre>
             <button class="copy-btn" onclick="doCopy('code-gtm-id',this)">Copiar</button>
@@ -514,9 +511,9 @@ code {
         </div>
       </div>
       <div class="step-row" id="step-render-manual">
-        <div class="step-num">3</div>
+        <div class="step-num">2</div>
         <div class="step-body">
-          <div class="step-title">Adicionar no Render</div>
+          <div class="step-title">Adicionar manualmente no Render</div>
           <div class="step-desc">Render → <code>trivo-capi</code> → Environment → <code>CLIENTS_JSON</code>:</div>
           <div class="code-block">
             <pre id="code-clients-json">{ }</pre>
@@ -528,7 +525,7 @@ code {
         <div class="step-num done">✓</div>
         <div class="step-body">
           <div class="step-title" style="color:var(--success)">Render atualizado automaticamente</div>
-          <div class="step-desc">Cliente adicionado ao <code>CLIENTS_JSON</code>. Redeploy em andamento (~30s).</div>
+          <div class="step-desc">Cliente salvo no <code>CLIENTS_JSON</code>. Redeploy em andamento (~30s).</div>
         </div>
       </div>
     </div>
@@ -672,6 +669,8 @@ async function doRegister() {
 
 document.getElementById('prov-meta').addEventListener('change', e => { document.getElementById('meta-panel').hidden = !e.target.checked; });
 document.getElementById('prov-google').addEventListener('change', e => { document.getElementById('google-panel').hidden = !e.target.checked; });
+// Painel Meta começa visível
+document.getElementById('meta-panel').hidden = false;
 
 function logSet(id, state, text) {
   const el = document.getElementById(id); if (!el) return;
@@ -693,9 +692,10 @@ function showError(msg) {
 }
 async function startOnboarding() {
   const nome=document.getElementById('f-nome').value.trim(), url=document.getElementById('f-url').value.trim();
+  const gtmId=document.getElementById('f-gtm').value.trim(), ga4Id=document.getElementById('f-ga4').value.trim();
   const hasMeta=document.getElementById('prov-meta').checked, hasGoog=document.getElementById('prov-google').checked;
   const pixelId=document.getElementById('f-pixel').value.trim(), tok=document.getElementById('f-token').value.trim();
-  const adsTag=document.getElementById('f-ads-tag').value.trim(), adsLbl=document.getElementById('f-ads-label').value.trim();
+  const adsTag=document.getElementById('f-ads-tag').value.trim();
   if (!nome) { hl('f-nome'); return; }
   if (!url||!url.startsWith('http')) { hl('f-url'); return; }
   if (hasMeta&&!pixelId) { hl('f-pixel'); return; }
@@ -706,9 +706,11 @@ async function startOnboarding() {
   document.getElementById('prog-card').hidden=false;
   document.getElementById('form-card').style.opacity='0.55';
   const payload={nome,url};
+  if (gtmId) payload.gtm_id=gtmId;
+  if (ga4Id) payload.ga4_id=ga4Id;
   if (hasMeta){payload.pixel_id=pixelId;payload.meta_token=tok;}
-  if (hasGoog){payload.google_ads_tag=adsTag;if(adsLbl)payload.label=adsLbl;}
-  logSet('log-ga4','active','Criando propriedade GA4...');
+  if (hasGoog){payload.google_ads_tag=adsTag;}
+  logSet('log-render','active','Salvando cliente no servidor...');
   try {
     const resp = await fetch(`${API}/onboarding`,{
       method:'POST',
@@ -716,40 +718,31 @@ async function startOnboarding() {
       body:JSON.stringify(payload),
     });
     if (resp.status===401){doLogout();return;}
-    logSet('log-ga4','done','GA4 criada');
-    logSet('log-gtm','active','Criando container GTM...');
     let data; try{data=await resp.json();}catch{throw new Error(`Resposta inesperada (${resp.status})`);}
     if(!resp.ok) throw new Error(data.detail||`Erro ${resp.status}`);
-    logSet('log-gtm','done',`Container ${data.gtm?.public_id} criado`);
-    logSet('log-tags','active','Tags e acionadores...');
-    await delay(400); logSet('log-tags','done','Tags configuradas');
-    logSet('log-render','active','Atualizando Render...');
-    await delay(300);
     const renderOk=data.render_atualizado===true;
-    logSet('log-render',renderOk?'done':'fail',renderOk?'CLIENTS_JSON atualizado':'Atualização manual necessária');
-    await delay(350);
+    logSet('log-render',renderOk?'done':'fail',renderOk?'Cliente salvo com sucesso':'Salvo localmente (Render não atualizado)');
+    await delay(400);
     document.getElementById('prog-card').hidden=true;
     document.getElementById('form-card').style.opacity='1';
     document.getElementById('btn-start').disabled=false;
     gClientId=data.client_id||''; gHasGoogle=hasGoog;
-    document.getElementById('res-gtm').textContent=data.gtm?.public_id||'—';
-    document.getElementById('res-ga4').textContent=data.ga4?.measurement_id||'—';
+    document.getElementById('res-gtm').textContent=data.gtm?.public_id||'(não informado)';
+    document.getElementById('res-ga4').textContent=data.ga4?.measurement_id||'(não informado)';
     document.getElementById('res-client').textContent=data.client_id||'—';
     if(!data.ga4?.measurement_id) document.getElementById('res-ga4-row').hidden=true;
     if(data.erros?.length){document.getElementById('warn-erros').hidden=false;document.getElementById('warn-erros-text').textContent='Avisos: '+data.erros.join(' · ');}
     document.getElementById('results-card').hidden=false;
-    document.getElementById('code-gtm-id').textContent=data.gtm?.public_id||'';
+    document.getElementById('code-gtm-id').textContent=gtmId||'(não informado)';
     document.getElementById('code-clients-json').textContent=JSON.stringify(data.clients_json_entry,null,2);
-    if(data.gtm?.ui_url) document.getElementById('gtm-link').href=data.gtm.ui_url;
     if(renderOk){
       document.getElementById('step-render-manual').hidden=true;
       document.getElementById('step-render-auto').hidden=false;
-      document.getElementById('val-hint').textContent='Depois de publicar o GTM e aguardar o redeploy (~30s), clique para confirmar.';
     }
     document.getElementById('steps-card').hidden=false;
     document.getElementById('val-card').hidden=false;
     document.getElementById('results-card').scrollIntoView({behavior:'smooth',block:'start'});
-  } catch(e) { logSet('log-ga4','fail'); showError('Erro ao conectar ao Trivo CAPI: '+e.message); }
+  } catch(e) { logSet('log-render','fail'); showError('Erro ao conectar ao Trivo CAPI: '+e.message); }
 }
 async function doValidate() {
   if(!gClientId) return;

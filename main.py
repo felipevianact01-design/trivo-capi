@@ -490,12 +490,15 @@ async def _atualizar_render_clients_json(novo_cliente: dict) -> dict:
 @app.post("/onboarding")
 async def onboarding(request: Request):
     """
-    Cria container GTM + propriedade GA4 + todas as tags para um novo cliente.
-    Retorna GTM-ID, Measurement ID e o objeto a adicionar no CLIENTS_JSON.
+    Registra um cliente: salva no CLIENTS_JSON e retorna os próximos passos.
 
     Payload:
-      nome, url, pixel_id?, meta_token?, google_ads_tag?, label?
-      gtm_account_id? (default: 6378805007), ga4_account? (default: 269067750)
+      nome, url
+      gtm_id?       — Container ID existente (ex: GTM-XXXXXXX)
+      ga4_id?       — Measurement ID existente (ex: G-XXXXXXXXX)
+      pixel_id?     — Meta Pixel ID
+      meta_token?   — Meta CAPI Access Token
+      google_ads_tag? — AW-XXXXXXXXXX
     """
     if ONBOARDING_KEY:
         if request.headers.get("X-API-Key", "") != ONBOARDING_KEY:
@@ -507,80 +510,42 @@ async def onboarding(request: Request):
         raise HTTPException(status_code=400, detail="Payload JSON inválido")
 
     nome = body.get("nome", "").strip()
-    url = body.get("url", "").strip()
+    url  = body.get("url",  "").strip()
     if not nome or not url:
         raise HTTPException(status_code=400, detail="nome e url são obrigatórios")
 
-    pixel_id = body.get("pixel_id", "").strip()
-    meta_token = body.get("meta_token", "").strip()
+    gtm_id        = body.get("gtm_id", "").strip()
+    ga4_id        = body.get("ga4_id", "").strip()
+    pixel_id      = body.get("pixel_id", "").strip()
+    meta_token    = body.get("meta_token", "").strip()
     google_ads_tag = body.get("google_ads_tag", "").strip()
-    label = body.get("label", "").strip()
-    gtm_account_id = str(body.get("gtm_account_id", GTM_ACCOUNT_ID))
-    ga4_account_id = str(body.get("ga4_account", GA4_ACCOUNT_ID))
-    client_id = _slug(nome)
+    client_id     = _slug(nome)
 
-    logger.info(f"[onboarding] iniciando para '{nome}' ({client_id})")
+    logger.info(f"[onboarding] registrando '{nome}' ({client_id})")
 
-    token = await _gtm_access_token()
-    erros = []
-
-    # GA4
-    ga4 = {}
-    try:
-        ga4 = await _criar_ga4(token, nome, url, ga4_account_id)
-        logger.info(f"[onboarding] GA4 property {ga4['property_id']}, measurement {ga4['measurement_id']}")
-    except Exception as e:
-        erros.append(f"GA4: {str(e)[:120]}")
-        logger.error(f"[onboarding] GA4 falhou: {e}")
-
-    # GTM container
-    try:
-        gtm = await _criar_gtm_container(token, nome, url, gtm_account_id)
-        logger.info(f"[onboarding] GTM container {gtm['public_id']}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao criar GTM container: {str(e)[:200]}")
-
-    # GTM entities
-    ws_id = None
-    try:
-        ws_id = await _criar_gtm_entities(
-            token, gtm_account_id, gtm["container_id"],
-            client_id, pixel_id, google_ads_tag, label,
-            ga4.get("measurement_id", ""),
-        )
-    except Exception as e:
-        erros.append(f"GTM entities: {str(e)[:120]}")
-        logger.error(f"[onboarding] GTM entities falhou: {e}")
-
-    # CLIENTS_JSON entry
     entry: dict = {"id": client_id}
+    if gtm_id:
+        entry["gtm_id"] = gtm_id
+    if ga4_id:
+        entry["ga4_id"] = ga4_id
+    if pixel_id and meta_token:
+        entry["pixel_id"]    = pixel_id
+        entry["meta_token"]  = meta_token
     if google_ads_tag:
         entry["google_ads_id"] = google_ads_tag.replace("AW-", "")
-    if pixel_id and meta_token:
-        entry["pixel_id"] = pixel_id
-        entry["meta_token"] = meta_token
 
-    # Atualiza Render automaticamente (se configurado)
     render_result = await _atualizar_render_clients_json(entry)
-    if render_result["status"] == "erro":
-        erros.append(f"Render: {render_result.get('detalhe','')}")
+    render_ok = render_result["status"] == "ok"
     logger.info(f"[onboarding] Render: {render_result}")
 
-    gtm_ui = f"https://tagmanager.google.com/#/container/accounts/{gtm_account_id}/containers/{gtm['container_id']}/workspaces/{ws_id}"
-
     return {
-        "success": len(erros) == 0,
+        "success": True,
         "client_id": client_id,
-        "gtm": {
-            "public_id": gtm["public_id"],
-            "container_id": gtm["container_id"],
-            "workspace_id": ws_id,
-            "ui_url": gtm_ui,
-        },
-        "ga4": ga4,
+        "gtm": {"public_id": gtm_id} if gtm_id else {},
+        "ga4": {"measurement_id": ga4_id} if ga4_id else {},
         "clients_json_entry": entry,
-        "render_atualizado": render_result["status"] == "ok",
-        "erros": erros,
+        "render_atualizado": render_ok,
+        "erros": [] if render_ok else [render_result.get("detalhe", "Erro Render")],
     }
 
 
