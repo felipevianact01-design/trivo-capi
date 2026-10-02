@@ -79,6 +79,8 @@ GOOGLE_ADS_API_VERSION = os.environ.get("GOOGLE_ADS_API_VERSION", "v21")
 GTM_ACCOUNT_ID = os.environ.get("GTM_ACCOUNT_ID", "6378805007")
 GA4_ACCOUNT_ID = os.environ.get("GA4_ACCOUNT_ID", "269067750")
 ONBOARDING_KEY = os.environ.get("TRIVO_ONBOARDING_KEY", "")
+RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
+RENDER_SERVICE_ID = os.environ.get("RENDER_SERVICE_ID", "")
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -434,6 +436,54 @@ async def _criar_gtm_entities(token: str, account_id: str, container_id: str,
     return ws_id
 
 
+async def _atualizar_render_clients_json(novo_cliente: dict) -> dict:
+    """
+    Atualiza CLIENTS_JSON no Render via API, adicionando novo_cliente.
+    O Render faz redeploy automático ao detectar mudança na env var.
+    Requer RENDER_API_KEY e RENDER_SERVICE_ID configurados.
+    """
+    if not RENDER_API_KEY or not RENDER_SERVICE_ID:
+        return {"status": "skip", "motivo": "RENDER_API_KEY ou RENDER_SERVICE_ID não configurados"}
+
+    h = {"Authorization": f"Bearer {RENDER_API_KEY}", "Accept": "application/json",
+         "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=20) as http:
+        # 1. Busca todas as env vars atuais
+        r = await http.get(
+            f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
+            headers=h,
+        )
+        if r.status_code != 200:
+            return {"status": "erro", "detalhe": f"GET env-vars: {r.status_code}"}
+
+        items = r.json()  # [{"cursor": "...", "envVar": {"key": "...", "value": "..."}}, ...]
+        env_map = {i["envVar"]["key"]: i["envVar"]["value"] for i in items if "envVar" in i}
+
+        # 2. Atualiza CLIENTS_JSON
+        try:
+            clients = json.loads(env_map.get("CLIENTS_JSON", "[]"))
+        except Exception:
+            clients = []
+        # Remove versão anterior se já existir (re-onboarding)
+        clients = [c for c in clients if c.get("id") != novo_cliente.get("id")]
+        clients.append(novo_cliente)
+        env_map["CLIENTS_JSON"] = json.dumps(clients, ensure_ascii=False)
+
+        # 3. Envia de volta
+        payload = [{"key": k, "value": v} for k, v in env_map.items()]
+        r2 = await http.put(
+            f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
+            headers=h,
+            json=payload,
+        )
+        if r2.status_code not in (200, 201):
+            return {"status": "erro", "detalhe": f"PUT env-vars: {r2.status_code} {r2.text[:120]}"}
+
+    logger.info(f"[onboarding] Render CLIENTS_JSON atualizado — {len(clients)} clientes")
+    return {"status": "ok", "clientes_total": len(clients)}
+
+
 @app.post("/onboarding")
 async def onboarding(request: Request):
     """
@@ -507,6 +557,12 @@ async def onboarding(request: Request):
         entry["pixel_id"] = pixel_id
         entry["meta_token"] = meta_token
 
+    # Atualiza Render automaticamente (se configurado)
+    render_result = await _atualizar_render_clients_json(entry)
+    if render_result["status"] == "erro":
+        erros.append(f"Render: {render_result.get('detalhe','')}")
+    logger.info(f"[onboarding] Render: {render_result}")
+
     gtm_ui = f"https://tagmanager.google.com/#/container/accounts/{gtm_account_id}/containers/{gtm['container_id']}/workspaces/{ws_id}"
 
     return {
@@ -520,6 +576,7 @@ async def onboarding(request: Request):
         },
         "ga4": ga4,
         "clients_json_entry": entry,
+        "render_atualizado": render_result["status"] == "ok",
         "erros": erros,
     }
 
