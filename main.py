@@ -524,7 +524,7 @@ async def onboarding(request: Request):
 
     logger.info(f"[onboarding] registrando '{nome}' ({client_id})")
 
-    entry: dict = {"id": client_id}
+    entry: dict = {"id": client_id, "nome": nome}
     if gtm_id:
         entry["gtm_id"] = gtm_id
     if ga4_id:
@@ -841,6 +841,7 @@ async def listar_clientes(request: Request):
         "clientes": [
             {
                 "id": cid,
+                "nome": c.get("nome", cid),
                 "gtm_id": c.get("gtm_id", ""),
                 "ga4_id": c.get("ga4_id", ""),
                 "pixel_id": c.get("pixel_id", ""),
