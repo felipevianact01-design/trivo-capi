@@ -707,12 +707,17 @@ async def receber_evento(client_id: str, request: Request):
 import hashlib as _hashlib
 
 
+_users_cache: list | None = None
+
 def _load_users() -> list:
-    raw = os.environ.get("ONBOARDING_USERS", "[]")
-    try:
-        return json.loads(raw)
-    except Exception:
-        return []
+    global _users_cache
+    if _users_cache is None:
+        raw = os.environ.get("ONBOARDING_USERS", "[]")
+        try:
+            _users_cache = json.loads(raw)
+        except Exception:
+            _users_cache = []
+    return _users_cache
 
 
 def _hash_pass(password: str) -> str:
@@ -725,6 +730,13 @@ def _make_token(username: str) -> str:
 
 
 async def _atualizar_render_users(novo_usuario: dict) -> dict:
+    global _users_cache
+    # Atualiza o cache em memória imediatamente (login funciona sem aguardar redeploy)
+    current = list(_load_users())
+    current = [u for u in current if u.get("username") != novo_usuario.get("username")]
+    current.append(novo_usuario)
+    _users_cache = current
+
     if not RENDER_API_KEY or not RENDER_SERVICE_ID:
         return {"status": "skip", "motivo": "RENDER_API_KEY ou RENDER_SERVICE_ID não configurados"}
     h = {
@@ -735,16 +747,10 @@ async def _atualizar_render_users(novo_usuario: dict) -> dict:
     async with httpx.AsyncClient(timeout=20) as http:
         r = await http.get(f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars", headers=h)
         if r.status_code != 200:
-            return {"status": "erro", "detalhe": f"GET env-vars: {r.status_code}"}
+            return {"status": "ok_local", "detalhe": f"Cache atualizado; GET Render: {r.status_code}"}
         items = r.json()
         env_map = {i["envVar"]["key"]: i["envVar"]["value"] for i in items if "envVar" in i}
-        try:
-            users = json.loads(env_map.get("ONBOARDING_USERS", "[]"))
-        except Exception:
-            users = []
-        users = [u for u in users if u.get("username") != novo_usuario.get("username")]
-        users.append(novo_usuario)
-        env_map["ONBOARDING_USERS"] = json.dumps(users, ensure_ascii=False)
+        env_map["ONBOARDING_USERS"] = json.dumps(current, ensure_ascii=False)
         payload = [{"key": k, "value": v} for k, v in env_map.items()]
         r2 = await http.put(
             f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
@@ -752,8 +758,8 @@ async def _atualizar_render_users(novo_usuario: dict) -> dict:
             json=payload,
         )
         if r2.status_code not in (200, 201):
-            return {"status": "erro", "detalhe": f"PUT env-vars: {r2.status_code} {r2.text[:120]}"}
-    return {"status": "ok", "usuarios_total": len(users)}
+            return {"status": "ok_local", "detalhe": f"Cache atualizado; PUT Render: {r2.status_code}"}
+    return {"status": "ok", "usuarios_total": len(current)}
 
 
 @app.post("/register")
