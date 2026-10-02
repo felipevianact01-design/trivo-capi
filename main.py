@@ -83,6 +83,7 @@ RENDER_API_KEY = os.environ.get("RENDER_API_KEY", "")
 RENDER_SERVICE_ID = os.environ.get("RENDER_SERVICE_ID", "")
 ONBOARDING_USER = os.environ.get("ONBOARDING_USER", "")
 ONBOARDING_PASS = os.environ.get("ONBOARDING_PASS", "")
+INVITE_CODE     = os.environ.get("INVITE_CODE", "")
 
 # ─────────────────────────────────────────────
 # Helpers
@@ -700,43 +701,137 @@ async def receber_evento(client_id: str, request: Request):
 
 
 # ─────────────────────────────────────────────
-# Autenticação do painel de onboarding
+# Autenticação multi-usuário do painel
 # ─────────────────────────────────────────────
 
-@app.post("/login")
-async def login(request: Request):
-    """Valida usuário e senha para o painel de onboarding."""
+import hashlib as _hashlib
+
+
+def _load_users() -> list:
+    raw = os.environ.get("ONBOARDING_USERS", "[]")
+    try:
+        return json.loads(raw)
+    except Exception:
+        return []
+
+
+def _hash_pass(password: str) -> str:
+    return _hashlib.sha256(password.encode()).hexdigest()
+
+
+def _make_token(username: str) -> str:
+    secret = INVITE_CODE or RENDER_API_KEY or "trivo-secret"
+    return _hashlib.sha256(f"trivo:{username}:{secret}".encode()).hexdigest()
+
+
+async def _atualizar_render_users(novo_usuario: dict) -> dict:
+    if not RENDER_API_KEY or not RENDER_SERVICE_ID:
+        return {"status": "skip", "motivo": "RENDER_API_KEY ou RENDER_SERVICE_ID não configurados"}
+    h = {
+        "Authorization": f"Bearer {RENDER_API_KEY}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=20) as http:
+        r = await http.get(f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars", headers=h)
+        if r.status_code != 200:
+            return {"status": "erro", "detalhe": f"GET env-vars: {r.status_code}"}
+        items = r.json()
+        env_map = {i["envVar"]["key"]: i["envVar"]["value"] for i in items if "envVar" in i}
+        try:
+            users = json.loads(env_map.get("ONBOARDING_USERS", "[]"))
+        except Exception:
+            users = []
+        users = [u for u in users if u.get("username") != novo_usuario.get("username")]
+        users.append(novo_usuario)
+        env_map["ONBOARDING_USERS"] = json.dumps(users, ensure_ascii=False)
+        payload = [{"key": k, "value": v} for k, v in env_map.items()]
+        r2 = await http.put(
+            f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
+            headers=h,
+            json=payload,
+        )
+        if r2.status_code not in (200, 201):
+            return {"status": "erro", "detalhe": f"PUT env-vars: {r2.status_code} {r2.text[:120]}"}
+    return {"status": "ok", "usuarios_total": len(users)}
+
+
+@app.post("/register")
+async def register(request: Request):
     try:
         body = await request.json()
     except Exception:
         raise HTTPException(status_code=400, detail="Payload inválido")
 
-    username = body.get("username", "").strip()
+    username  = body.get("username", "").strip().lower()
+    password  = body.get("password", "").strip()
+    invite    = body.get("invite_code", "").strip()
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="Usuário e senha são obrigatórios")
+    if not INVITE_CODE:
+        raise HTTPException(status_code=503, detail="Cadastro desabilitado: INVITE_CODE não configurado")
+    if invite != INVITE_CODE:
+        raise HTTPException(status_code=403, detail="Código de convite inválido")
+
+    users = _load_users()
+    if any(u.get("username") == username for u in users):
+        raise HTTPException(status_code=409, detail="Usuário já existe")
+
+    novo = {"username": username, "password_hash": _hash_pass(password)}
+    result = await _atualizar_render_users(novo)
+    if result.get("status") == "erro":
+        raise HTTPException(status_code=500, detail=result.get("detalhe", "Erro ao salvar"))
+
+    return {"ok": True, "username": username}
+
+
+@app.post("/login")
+async def login(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payload inválido")
+
+    username = body.get("username", "").strip().lower()
     password = body.get("password", "").strip()
 
+    # Tenta multi-usuário primeiro
+    users = _load_users()
+    if users:
+        match = next((u for u in users if u.get("username") == username), None)
+        if not match or match.get("password_hash") != _hash_pass(password):
+            raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
+        return {"token": _make_token(username), "username": username}
+
+    # Fallback: variáveis legadas ONBOARDING_USER / ONBOARDING_PASS
     if not ONBOARDING_USER or not ONBOARDING_PASS:
         raise HTTPException(status_code=503, detail="Autenticação não configurada no servidor")
-
     if username != ONBOARDING_USER or password != ONBOARDING_PASS:
         raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
-
-    import hashlib, time as _time
-    token = hashlib.sha256(f"{username}:{password}:{RENDER_API_KEY or 'trivo'}".encode()).hexdigest()
-    return {"token": token, "username": username}
+    return {"token": _make_token(ONBOARDING_USER), "username": ONBOARDING_USER}
 
 
 @app.get("/auth/verify")
 async def auth_verify(request: Request):
-    """Verifica se um token de sessão é válido."""
-    import hashlib
     auth = request.headers.get("Authorization", "")
     token = auth.replace("Bearer ", "").strip()
+
+    # Verifica contra todos os usuários registrados
+    users = _load_users()
+    if users:
+        for u in users:
+            if _make_token(u["username"]) == token:
+                return {"valid": True, "username": u["username"]}
+        # Fallback legado dentro do mesmo bloco de users
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    # Fallback legado
     if not ONBOARDING_USER or not ONBOARDING_PASS:
         raise HTTPException(status_code=503, detail="Autenticação não configurada")
-    expected = hashlib.sha256(f"{ONBOARDING_USER}:{ONBOARDING_PASS}:{RENDER_API_KEY or 'trivo'}".encode()).hexdigest()
-    if token != expected:
-        raise HTTPException(status_code=401, detail="Token inválido")
-    return {"valid": True}
+    if _make_token(ONBOARDING_USER) == token:
+        return {"valid": True, "username": ONBOARDING_USER}
+    raise HTTPException(status_code=401, detail="Token inválido")
 
 
 # ─────────────────────────────────────────────

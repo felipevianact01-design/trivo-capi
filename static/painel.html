@@ -316,11 +316,11 @@ code {
     <p class="login-sub" style="margin-top:-4px">Entre com suas credenciais para continuar</p>
 
     <div class="login-form">
-      <div class="field">
+      <div class="field" data-login-field>
         <label class="field-label" for="l-user">Usuário</label>
         <input type="text" id="l-user" placeholder="trivo" autocomplete="username">
       </div>
-      <div class="field">
+      <div class="field" data-login-field>
         <label class="field-label" for="l-pass">Senha</label>
         <input type="password" id="l-pass" placeholder="••••••••" autocomplete="current-password">
       </div>
@@ -328,6 +328,42 @@ code {
         <span>✗</span><span id="login-err-text" style="flex:1">Usuário ou senha incorretos.</span>
       </div>
       <button class="btn-primary full" id="btn-login" onclick="doLogin()">Entrar</button>
+      <div style="text-align:center;margin-top:4px">
+        <button type="button" id="btn-toggle-register" onclick="toggleRegister()"
+          style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px 0">
+          Criar conta →
+        </button>
+      </div>
+    </div>
+
+    <!-- Formulário de cadastro (oculto por padrão) -->
+    <div class="login-form" id="register-form" hidden>
+      <p style="font-size:13px;color:var(--fg-muted);margin:0 0 4px">Crie seu acesso ao painel Trivo.</p>
+      <div class="field-group">
+        <label class="field-label" for="r-user">Usuário</label>
+        <input type="text" id="r-user" placeholder="seunome" autocomplete="username">
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="r-pass">Senha</label>
+        <input type="password" id="r-pass" placeholder="••••••••" autocomplete="new-password">
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="r-invite">Código de convite</label>
+        <input type="text" id="r-invite" placeholder="Código fornecido pela Trivo">
+      </div>
+      <div class="banner error" id="register-err" hidden>
+        <span>✗</span><span id="register-err-text" style="flex:1"></span>
+      </div>
+      <div class="banner success" id="register-ok" hidden>
+        <span>✓</span><span style="flex:1">Conta criada! Aguarde ~30 segundos e faça login.</span>
+      </div>
+      <button class="btn-primary full" id="btn-register" onclick="doRegister()">Criar conta</button>
+      <div style="text-align:center;margin-top:4px">
+        <button type="button" onclick="toggleRegister()"
+          style="background:none;border:none;color:var(--accent);font-size:13px;cursor:pointer;padding:4px 0">
+          ← Voltar ao login
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -584,6 +620,55 @@ async function doLogin() {
 function doLogout() { clearSession(); gToken = ''; document.getElementById('l-pass').value = ''; showLogin(); }
 document.getElementById('l-pass').addEventListener('keydown', e => { if (e.key==='Enter') doLogin(); });
 document.getElementById('l-user').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('l-pass').focus(); });
+
+function toggleRegister() {
+  const regForm = document.getElementById('register-form');
+  const showReg = regForm.hidden;
+  document.querySelectorAll('[data-login-field]').forEach(el => el.hidden = showReg);
+  document.getElementById('login-err').hidden = true;
+  document.getElementById('btn-login').hidden = showReg;
+  document.getElementById('btn-toggle-register').hidden = showReg;
+  regForm.hidden = !showReg;
+  document.getElementById('register-err').hidden = true;
+  document.getElementById('register-ok').hidden = true;
+}
+
+async function doRegister() {
+  const username = document.getElementById('r-user').value.trim().toLowerCase();
+  const password = document.getElementById('r-pass').value.trim();
+  const invite_code = document.getElementById('r-invite').value.trim();
+  const btn = document.getElementById('btn-register');
+  const err = document.getElementById('register-err');
+  const ok  = document.getElementById('register-ok');
+  err.hidden = true; ok.hidden = true;
+  if (!username || !password || !invite_code) {
+    document.getElementById('register-err-text').textContent = 'Preencha todos os campos.';
+    err.hidden = false; return;
+  }
+  btn.disabled = true; btn.textContent = 'Criando...';
+  try {
+    const r = await fetch(`${API}/register`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ username, password, invite_code }),
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      document.getElementById('register-err-text').textContent = d.detail || 'Erro ao criar conta.';
+      err.hidden = false;
+    } else {
+      ok.hidden = false;
+      document.getElementById('r-user').value = '';
+      document.getElementById('r-pass').value = '';
+      document.getElementById('r-invite').value = '';
+      // Pre-fill login username
+      document.getElementById('l-user').value = username;
+    }
+  } catch {
+    document.getElementById('register-err-text').textContent = 'Erro de conexão com o servidor.';
+    err.hidden = false;
+  }
+  btn.disabled = false; btn.textContent = 'Criar conta';
+}
 
 document.getElementById('prov-meta').addEventListener('change', e => { document.getElementById('meta-panel').hidden = !e.target.checked; });
 document.getElementById('prov-google').addEventListener('change', e => { document.getElementById('google-panel').hidden = !e.target.checked; });
