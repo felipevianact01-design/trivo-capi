@@ -824,7 +824,15 @@ async function loadClients() {
   } catch(e) { console.error('loadClients:', e); }
 }
 
-function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag, adsLabel) {
+function slugify(text) {
+  return text.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag, adsLabel, clientId) {
+  clientId = clientId || slugify(nome || 'cliente');
   const now = new Date().toISOString().replace('T',' ').slice(0,19);
   const T_ALL  = "1";
   const T_WAPP = "2";
@@ -885,11 +893,28 @@ function buildGTMContainer(nome, gtmId, ga4Id, pixelId, adsTag, adsLabel) {
       ],
       firingTriggerId:[T_ALL]
     });
+    const leadHtml = `<script>
+(function(){
+  function getCookie(n){var v=document.cookie.match('(^|;) ?'+n+'=([^;]*)(;|$)');return v?v[2]:'';}
+  var eid='wapp-'+Date.now()+'-'+Math.random().toString(36).slice(2,7);
+  fbq('track','Lead',{},{eventID:eid});
+  fetch('https://trivo-capi.onrender.com/evento/${clientId}',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      event_name:'Lead',event_id:eid,
+      source_url:window.location.href,
+      user_agent:navigator.userAgent,
+      fbc:getCookie('_fbc'),fbp:getCookie('_fbp')
+    }),keepalive:true
+  }).catch(function(){});
+})();
+<\/script>`;
     tags.push({
       accountId:"0",containerId:"0",tagId:String(tid++),
-      name:"Meta Pixel - Lead (WhatsApp)",type:"html",
+      name:"Meta Pixel + CAPI - Lead (WhatsApp)",type:"html",
       parameter:[
-        {type:"TEMPLATE",key:"html",value:"<script>\nfbq('track','Lead');\n<\/script>"},
+        {type:"TEMPLATE",key:"html",value:leadHtml},
         {type:"BOOLEAN",key:"supportDocumentWrite",value:"false"}
       ],
       firingTriggerId:[T_WAPP]
@@ -955,13 +980,13 @@ function downloadGTMJson() {
   const pixelId = document.getElementById('prov-meta').checked ? document.getElementById('f-pixel').value.trim() : '';
   const adsTag = document.getElementById('prov-google').checked ? document.getElementById('f-ads-tag').value.trim() : '';
   const adsLabel = document.getElementById('prov-google').checked ? document.getElementById('f-ads-label').value.trim() : '';
-  const data = buildGTMContainer(nome||'Cliente', gtmId, ga4Id, pixelId, adsTag, adsLabel);
+  const data = buildGTMContainer(nome||'Cliente', gtmId, ga4Id, pixelId, adsTag, adsLabel, slugify(nome||'cliente'));
   triggerDownload(`GTM-container-${nome||'cliente'}.json`, JSON.stringify(data, null, 2));
 }
 
 function downloadGTMJsonForClient(c) {
   const adsTag = c.google_ads_tag || (c.google_ads_id ? 'AW-'+c.google_ads_id : '');
-  const data = buildGTMContainer(c.id, c.gtm_id||'', c.ga4_id||'', c.pixel_id||'', adsTag, c.google_ads_label||'');
+  const data = buildGTMContainer(c.id, c.gtm_id||'', c.ga4_id||'', c.pixel_id||'', adsTag, c.google_ads_label||'', c.id);
   triggerDownload(`GTM-container-${c.id}.json`, JSON.stringify(data, null, 2));
 }
 
