@@ -690,6 +690,20 @@ code {
     <div id="val-summary" hidden></div>
   </div>
 
+  <!-- Passo final: download + concluir -->
+  <div class="glass card" id="done-card" hidden>
+    <p class="section-label">✅ Tudo pronto — último passo</p>
+    <p style="font-size:13px;color:var(--fg-muted);margin:0 0 4px">Baixe o container do GTM e importe em <strong>GTM → Admin → Importar container</strong>. Depois clique em Concluir.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn-primary" id="btn-dl-final" onclick="downloadGTMJson()" style="flex:1;min-width:200px">
+        ⬇ Baixar container.json do GTM
+      </button>
+      <button class="btn-ghost" onclick="closeModal()" style="flex:1;min-width:160px">
+        ✓ Concluir
+      </button>
+    </div>
+  </div>
+
   </div><!-- .modal-body -->
   </div><!-- #modal-overlay -->
 
@@ -698,7 +712,7 @@ code {
 
 <script>
 const API = window.location.origin;
-let gClientId = '', gHasGoogle = false, gToken = '';
+let gClientId = '', gHasGoogle = false, gToken = '', gClients = [];
 
 function savedToken() { try { return localStorage.getItem('trivo_token') || ''; } catch { return ''; } }
 function savedUser()  { try { return localStorage.getItem('trivo_user')  || ''; } catch { return ''; } }
@@ -734,8 +748,8 @@ function closeModal() {
   document.getElementById('results-card').hidden = true;
   document.getElementById('steps-card').hidden = true;
   document.getElementById('val-card').hidden = true;
+  document.getElementById('done-card').hidden = true;
   document.getElementById('error-banner').hidden = true;
-  document.getElementById('btn-dl-gtm').style.display = 'none';
   const btn = document.getElementById('btn-start');
   btn.disabled = true; btn.style.opacity = '0.4'; btn.style.cursor = 'not-allowed';
   document.querySelectorAll('.pre-check').forEach(cb => { cb.checked = false; });
@@ -751,7 +765,8 @@ function closeModal() {
   document.getElementById('chk-meta').style.display = '';
   loadClients();
 }
-function openModalForEdit(c) {
+function openModalForEdit(idx) {
+  const c = gClients[idx]; if (!c) return;
   closeModal();
   const displayName = c.nome || c.id.split('-').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
   document.getElementById('f-nome').value = displayName;
@@ -897,10 +912,12 @@ async function loadClients() {
     const d = await r.json();
     const list = document.getElementById('clients-list');
     if (!d.clientes || d.clientes.length === 0) {
+      gClients = [];
       list.innerHTML = '<p style="font-size:13px;color:var(--fg-muted);margin:0">Nenhum cliente cadastrado ainda.</p>';
       return;
     }
-    list.innerHTML = d.clientes.map(c => {
+    gClients = d.clientes;
+    list.innerHTML = d.clientes.map((c, i) => {
       const badges = [];
       if (c.gtm_id) badges.push(`<span class="client-badge active">${c.gtm_id}</span>`);
       if (c.ga4_id) badges.push(`<span class="client-badge active">${c.ga4_id}</span>`);
@@ -914,8 +931,8 @@ async function loadClients() {
           <div class="client-meta">${badges.join('')}</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick='openModalForEdit(${JSON.stringify(c)})'>✏ Editar</button>
-          <button class="btn-dl" onclick='downloadGTMJsonForClient(${JSON.stringify(c)})'>⬇ GTM JSON</button>
+          <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="openModalForEdit(${i})">✏ Editar</button>
+          <button class="btn-dl" onclick="downloadGTMJsonForClient(${i})">⬇ GTM JSON</button>
         </div>
       </div>`;
     }).join('');
@@ -1082,7 +1099,8 @@ function downloadGTMJson() {
   triggerDownload(`GTM-container-${nome||'cliente'}.json`, JSON.stringify(data, null, 2));
 }
 
-function downloadGTMJsonForClient(c) {
+function downloadGTMJsonForClient(idx) {
+  const c = gClients[idx]; if (!c) return;
   const adsTag = c.google_ads_tag || (c.google_ads_id ? 'AW-'+c.google_ads_id : '');
   const data = buildGTMContainer(c.id, c.gtm_id||'', c.ga4_id||'', c.pixel_id||'', adsTag, c.google_ads_label||'', c.id);
   triggerDownload(`GTM-container-${c.id}.json`, JSON.stringify(data, null, 2));
@@ -1166,8 +1184,8 @@ async function startOnboarding() {
     }
     document.getElementById('steps-card').hidden=false;
     document.getElementById('val-card').hidden=false;
-    document.getElementById('modal-overlay').scrollTo({top:0,behavior:'smooth'});
-    document.getElementById('btn-dl-gtm').style.display = '';
+    document.getElementById('done-card').hidden=false;
+    document.getElementById('modal-overlay').scrollTo({top:999999,behavior:'smooth'});
     loadClients();
   } catch(e) { logSet('log-render','fail'); showError('Erro ao conectar ao Trivo CAPI: '+e.message); }
 }
