@@ -858,6 +858,82 @@ async def listar_clientes(request: Request):
     }
 
 
+@app.get("/saude/{client_id}")
+async def saude_cliente(client_id: str):
+    """Verificação ao vivo: valida token Meta via Graph API e detecta GTM no site."""
+    clients = load_clients()
+    if client_id not in clients:
+        return {"status": "nao_encontrado", "client_id": client_id}
+    c = clients[client_id]
+    resultado: dict = {}
+
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as http:
+        # ── Meta CAPI: valida token contra a Graph API ──────────────────────
+        pixel_id = c.get("pixel_id", "")
+        meta_token = c.get("meta_token", "")
+        if pixel_id and meta_token:
+            try:
+                r = await http.get(
+                    f"https://graph.facebook.com/v20.0/{pixel_id}",
+                    params={"fields": "name", "access_token": meta_token},
+                )
+                if r.status_code == 200:
+                    nome_pixel = r.json().get("name", pixel_id)
+                    resultado["meta"] = {"ok": True, "msg": f"Token válido — Pixel: {nome_pixel}"}
+                else:
+                    err = r.json().get("error", {})
+                    resultado["meta"] = {
+                        "ok": False,
+                        "msg": err.get("message", "Token inválido"),
+                        "code": err.get("code"),
+                    }
+            except Exception as e:
+                resultado["meta"] = {"ok": False, "msg": f"Erro na verificação: {str(e)[:120]}"}
+        elif pixel_id:
+            resultado["meta"] = {"ok": False, "msg": "Pixel configurado mas token de acesso ausente"}
+        else:
+            resultado["meta"] = {"ok": None, "msg": "Meta não configurado"}
+
+        # ── GTM: verifica se o script está instalado no site do cliente ──────
+        gtm_id = c.get("gtm_id", "")
+        site_url = c.get("url", "")
+        if gtm_id and site_url:
+            try:
+                r = await http.get(
+                    site_url,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; Trivo-HealthCheck/1.0)"},
+                )
+                if gtm_id in r.text or "googletagmanager.com" in r.text:
+                    resultado["gtm_site"] = {"ok": True, "msg": "GTM detectado no HTML do site"}
+                else:
+                    resultado["gtm_site"] = {
+                        "ok": False,
+                        "msg": f"{gtm_id} não encontrado no HTML. Verifique se o snippet do GTM está instalado.",
+                    }
+            except Exception as e:
+                resultado["gtm_site"] = {
+                    "ok": None,
+                    "msg": f"Não foi possível acessar o site: {str(e)[:80]}",
+                }
+        elif gtm_id:
+            resultado["gtm_site"] = {"ok": None, "msg": "URL do site não informada — instale o snippet manualmente"}
+        else:
+            resultado["gtm_site"] = {"ok": None, "msg": "GTM não configurado"}
+
+        # ── Google Ads: verificação de formato (sem OAuth por cliente) ───────
+        ads_id = c.get("google_ads_id", "")
+        ads_label = c.get("google_ads_label", "")
+        if ads_id:
+            resultado["google_ads"] = {
+                "ok": True,
+                "msg": f"Tag AW-{ads_id}" + (f" / label {ads_label}" if ads_label else " — rótulo de conversão não informado"),
+            }
+        else:
+            resultado["google_ads"] = {"ok": None, "msg": "Google Ads não configurado (opcional)"}
+
+    return {"status": "ok", "client_id": client_id, "checks": resultado}
+
+
 @app.get("/verificar/{client_id}")
 def verificar_cliente(client_id: str):
     clients = load_clients()
