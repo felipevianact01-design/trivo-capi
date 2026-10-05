@@ -981,7 +981,10 @@ async def saude_cliente(client_id: str):
             try:
                 r = await http.get(
                     site_url,
-                    headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept-Encoding": "gzip, deflate",  # evita brotli (httpx precisa de lib extra pra brotli)
+                    },
                 )
                 if r.status_code >= 500:
                     resultado["gtm_site"] = {
