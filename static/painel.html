@@ -491,12 +491,18 @@ code {
 
   <!-- Clients panel -->
   <div class="glass card" id="clients-card">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <p class="section-label" style="margin:0">Clientes</p>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn-ghost" onclick="loadClients()" style="font-size:11px">↻</button>
         <button class="btn-primary" onclick="openModal()" style="padding:7px 16px;font-size:13px">+ Novo cliente</button>
       </div>
+    </div>
+    <div style="position:relative;margin-bottom:12px">
+      <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:14px;color:var(--fg-muted);pointer-events:none">🔍</span>
+      <input id="search-clients" type="text" placeholder="Buscar cliente…"
+        oninput="filterClients()"
+        style="width:100%;box-sizing:border-box;padding:8px 12px 8px 32px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--fg);font-size:13px;outline:none">
     </div>
     <div class="clients-grid" id="clients-list">
       <p style="font-size:13px;color:var(--fg-muted);margin:0">Nenhum cliente cadastrado ainda.</p>
@@ -930,6 +936,8 @@ function updateSaveBtn() {
 }
 
 async function loadClients() {
+  const searchEl = document.getElementById('search-clients');
+  if (searchEl) searchEl.value = '';
   try {
     const r = await fetch(`${API}/clientes`, { headers: { Authorization: `Bearer ${gToken}` } });
     if (!r.ok) return;
@@ -960,6 +968,16 @@ async function loadClients() {
       </div>`;
     }).join('');
   } catch(e) { console.error('loadClients:', e); }
+}
+
+function filterClients() {
+  const q = (document.getElementById('search-clients')?.value || '').toLowerCase().trim();
+  document.querySelectorAll('#clients-list .client-card').forEach((card, i) => {
+    const c = gClients[i];
+    if (!c) return;
+    const name = (c.nome || c.id).toLowerCase();
+    card.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
 }
 
 function healthRow(c) {
