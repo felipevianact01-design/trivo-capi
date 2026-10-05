@@ -397,6 +397,11 @@ code {
 .hp-err { color:var(--warning); }
 .hp-action { font-size:11px; color:var(--accent); cursor:pointer; text-decoration:underline; margin-top:2px; }
 .hp-section-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--fg-muted); margin:8px 0 4px; }
+.time-badge { display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600; padding:2px 8px; border-radius:20px; border:none; cursor:default; }
+.time-badge.time-camisa10 { background:rgba(59,130,246,.18); color:#93c5fd; }
+.time-badge.time-faixa-preta { background:rgba(168,85,247,.18); color:#d8b4fe; }
+.time-badge.time-unset { background:rgba(255,255,255,.08); color:var(--fg-muted); cursor:pointer; }
+.time-badge.time-unset:hover { background:rgba(255,255,255,.14); color:var(--fg); }
 .btn-dl {
   background: rgba(255,255,255,0.06); border: 1px solid var(--border-strong);
   border-radius: 8px; color: var(--fg-muted); padding: 6px 12px;
@@ -454,6 +459,19 @@ code {
       <div class="field-group">
         <label class="field-label" for="r-invite">Código de convite</label>
         <input type="text" id="r-invite" placeholder="Código fornecido pela Trivo">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Seu time</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px" id="lbl-camisa10">
+            <input type="radio" name="r-time" value="camisa10" id="r-time-camisa10">
+            <span>⚽ Camisa 10</span>
+          </label>
+          <label style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);cursor:pointer;font-size:13px" id="lbl-faixapreta">
+            <input type="radio" name="r-time" value="faixa-preta" id="r-time-faixapreta">
+            <span>🥋 Faixa Preta</span>
+          </label>
+        </div>
       </div>
       <div class="banner error" id="register-err" hidden>
         <span>✗</span><span id="register-err-text" style="flex:1"></span>
@@ -742,20 +760,24 @@ code {
 
 <script>
 const API = window.location.origin;
-let gClientId = '', gHasGoogle = false, gToken = '', gClients = [];
+let gClientId = '', gHasGoogle = false, gToken = '', gClients = [], gUserTime = '';
 
 function savedToken() { try { return localStorage.getItem('trivo_token') || ''; } catch { return ''; } }
 function savedUser()  { try { return localStorage.getItem('trivo_user')  || ''; } catch { return ''; } }
-function saveSession(t, u) { try { localStorage.setItem('trivo_token',t); localStorage.setItem('trivo_user',u); } catch {} }
-function clearSession() { try { localStorage.removeItem('trivo_token'); localStorage.removeItem('trivo_user'); } catch {} }
+function savedTime()  { try { return localStorage.getItem('trivo_time')  || ''; } catch { return ''; } }
+function saveSession(t, u, tm) { try { localStorage.setItem('trivo_token',t); localStorage.setItem('trivo_user',u); localStorage.setItem('trivo_time', tm||''); } catch {} }
+function clearSession() { try { ['trivo_token','trivo_user','trivo_time'].forEach(k=>localStorage.removeItem(k)); } catch {} }
 
 async function checkExistingSession() {
   const tok = savedToken();
   if (!tok) return showLogin();
   try {
     const r = await fetch(`${API}/auth/verify`, { headers: { Authorization: `Bearer ${tok}` } });
-    if (r.ok) { gToken = tok; showApp(savedUser()); }
-    else { clearSession(); showLogin(); }
+    if (r.ok) {
+      const d = await r.json();
+      gToken = tok; gUserTime = d.time || savedTime();
+      showApp(savedUser());
+    } else { clearSession(); showLogin(); }
   } catch { showLogin(); }
 }
 function showLogin() {
@@ -845,7 +867,7 @@ async function doLogin() {
       document.getElementById('login-err-text').textContent = d.detail || 'Usuário ou senha incorretos.';
       err.hidden = false; btn.disabled = false; btn.textContent = 'Entrar'; return;
     }
-    gToken = d.token; saveSession(d.token, d.username); showApp(d.username);
+    gToken = d.token; gUserTime = d.time || ''; saveSession(d.token, d.username, d.time); showApp(d.username);
   } catch {
     document.getElementById('login-err-text').textContent = 'Erro de conexão com o servidor.';
     err.hidden = false; btn.disabled = false; btn.textContent = 'Entrar';
@@ -871,6 +893,8 @@ async function doRegister() {
   const username = document.getElementById('r-user').value.trim().toLowerCase();
   const password = document.getElementById('r-pass').value.trim();
   const invite_code = document.getElementById('r-invite').value.trim();
+  const timeEl = document.querySelector('input[name="r-time"]:checked');
+  const time = timeEl ? timeEl.value : '';
   const btn = document.getElementById('btn-register');
   const err = document.getElementById('register-err');
   const ok  = document.getElementById('register-ok');
@@ -879,11 +903,15 @@ async function doRegister() {
     document.getElementById('register-err-text').textContent = 'Preencha todos os campos.';
     err.hidden = false; return;
   }
+  if (!time) {
+    document.getElementById('register-err-text').textContent = 'Escolha seu time (Camisa 10 ou Faixa Preta).';
+    err.hidden = false; return;
+  }
   btn.disabled = true; btn.textContent = 'Criando...';
   try {
     const r = await fetch(`${API}/register`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ username, password, invite_code }),
+      body: JSON.stringify({ username, password, invite_code, time }),
     });
     const d = await r.json();
     if (!r.ok) {
@@ -951,11 +979,17 @@ async function loadClients() {
     gClients = d.clientes;
     list.innerHTML = d.clientes.map((c, i) => {
       const displayName = c.nome || c.id.split('-').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
+      const timeBadge = c.time
+        ? `<span class="time-badge time-${c.time}">${c.time === 'camisa10' ? '⚽ Camisa 10' : '🥋 Faixa Preta'}</span>`
+        : (gUserTime ? `<button class="time-badge time-unset" onclick="definirTime(${i})">🏷 Definir time</button>` : '');
       return `<div class="client-card" style="flex-direction:column;align-items:stretch;gap:10px" id="cc-${i}">
         <div style="display:flex;align-items:center;gap:14px">
           <div class="client-avatar">🏢</div>
           <div class="client-info">
-            <div class="client-name">${displayName}</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <div class="client-name">${displayName}</div>
+              ${timeBadge}
+            </div>
             <div class="health-row">${healthRow(c)}</div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
@@ -978,6 +1012,23 @@ function filterClients() {
     const name = (c.nome || c.id).toLowerCase();
     card.style.display = (!q || name.includes(q)) ? '' : 'none';
   });
+}
+
+async function definirTime(i) {
+  const c = gClients[i]; if (!c) return;
+  if (c.time) return; // já definido
+  const label = gUserTime === 'camisa10' ? '⚽ Camisa 10' : '🥋 Faixa Preta';
+  if (!confirm(`Definir este container para o time ${label}?\n\nEsta ação não poderá ser desfeita.`)) return;
+  try {
+    const r = await fetch(`${API}/clientes/${c.id}/time`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gToken}` },
+      body: JSON.stringify({ time: gUserTime }),
+    });
+    const d = await r.json();
+    if (!r.ok) { alert(d.detail || 'Erro ao definir time.'); return; }
+    loadClients();
+  } catch { alert('Erro de conexão.'); }
 }
 
 function healthRow(c) {

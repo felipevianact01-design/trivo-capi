@@ -753,6 +753,7 @@ async def register(request: Request):
     username  = body.get("username", "").strip().lower()
     password  = body.get("password", "").strip()
     invite    = body.get("invite_code", "").strip()
+    time_user = body.get("time", "").strip()
 
     if not username or not password:
         raise HTTPException(status_code=400, detail="Usuário e senha são obrigatórios")
@@ -760,12 +761,14 @@ async def register(request: Request):
         raise HTTPException(status_code=503, detail="Cadastro desabilitado: INVITE_CODE não configurado")
     if invite != INVITE_CODE:
         raise HTTPException(status_code=403, detail="Código de convite inválido")
+    if time_user not in ("camisa10", "faixa-preta"):
+        raise HTTPException(status_code=400, detail="Escolha um time: camisa10 ou faixa-preta")
 
     users = _load_users()
     if any(u.get("username") == username for u in users):
         raise HTTPException(status_code=409, detail="Usuário já existe")
 
-    novo = {"username": username, "password_hash": _hash_pass(password)}
+    novo = {"username": username, "password_hash": _hash_pass(password), "time": time_user}
     result = await _atualizar_render_users(novo)
     if result.get("status") == "erro":
         raise HTTPException(status_code=500, detail=result.get("detalhe", "Erro ao salvar"))
@@ -789,7 +792,7 @@ async def login(request: Request):
         match = next((u for u in users if u.get("username") == username), None)
         if not match or match.get("password_hash") != _hash_pass(password):
             raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
-        return {"token": _make_token(username), "username": username}
+        return {"token": _make_token(username), "username": username, "time": match.get("time", "")}
 
     # Fallback: variáveis legadas ONBOARDING_USER / ONBOARDING_PASS
     if not ONBOARDING_USER or not ONBOARDING_PASS:
@@ -809,7 +812,7 @@ async def auth_verify(request: Request):
     if users:
         for u in users:
             if _make_token(u["username"]) == token:
-                return {"valid": True, "username": u["username"]}
+                return {"valid": True, "username": u["username"], "time": u.get("time", "")}
         # Fallback legado dentro do mesmo bloco de users
         raise HTTPException(status_code=401, detail="Token inválido")
 
@@ -835,6 +838,16 @@ def painel():
     return FileResponse("static/painel.html", media_type="text/html")
 
 
+def _user_time_from_token(token: str) -> str:
+    """Retorna o time do usuário autenticado, ou '' se não tiver time (admin/legado)."""
+    users = _load_users()
+    if users:
+        for u in users:
+            if _make_token(u["username"]) == token:
+                return u.get("time", "")
+    return ""
+
+
 @app.get("/clientes")
 async def listar_clientes(request: Request):
     auth = request.headers.get("Authorization", "")
@@ -845,9 +858,21 @@ async def listar_clientes(request: Request):
     )
     if not valid:
         raise HTTPException(status_code=401, detail="Token inválido")
+
+    user_time = _user_time_from_token(token)
     clients = load_clients()
+
+    def visivel(c: dict) -> bool:
+        # Sem time no usuário (admin/legado) → vê tudo
+        if not user_time:
+            return True
+        client_time = c.get("time", "")
+        # Sem time no container → visível para todos (ainda não atribuído)
+        return not client_time or client_time == user_time
+
+    clientes_visiveis = [(cid, c) for cid, c in clients.items() if visivel(c)]
     return {
-        "total": len(clients),
+        "total": len(clientes_visiveis),
         "clientes": [
             {
                 "id": cid,
@@ -862,10 +887,47 @@ async def listar_clientes(request: Request):
                 "meta_token": c.get("meta_token", ""),
                 "meta": bool(c.get("pixel_id") and c.get("meta_token")),
                 "google_ads": bool(c.get("google_ads_id")),
+                "time": c.get("time", ""),
             }
-            for cid, c in clients.items()
+            for cid, c in clientes_visiveis
         ],
     }
+
+
+@app.patch("/clientes/{client_id}/time")
+async def definir_time_cliente(client_id: str, request: Request):
+    """Define o time de um container — só pode ser feito uma vez."""
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+    users = _load_users()
+    valid = any(_make_token(u["username"]) == token for u in users) if users else (
+        bool(ONBOARDING_USER) and _make_token(ONBOARDING_USER) == token
+    )
+    if not valid:
+        raise HTTPException(status_code=401, detail="Token inválido")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Payload inválido")
+
+    time_novo = body.get("time", "").strip()
+    if time_novo not in ("camisa10", "faixa-preta"):
+        raise HTTPException(status_code=400, detail="Time inválido: use camisa10 ou faixa-preta")
+
+    clients = load_clients()
+    if client_id not in clients:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado")
+
+    c = clients[client_id]
+    if c.get("time"):
+        raise HTTPException(status_code=409, detail=f"Time já definido como '{c['time']}' — não pode ser alterado")
+
+    result = await _atualizar_render_clients_json({**c, "time": time_novo})
+    if result.get("status") == "erro":
+        raise HTTPException(status_code=500, detail=result.get("detalhe", "Erro ao salvar"))
+
+    return {"ok": True, "client_id": client_id, "time": time_novo}
 
 
 @app.get("/saude/{client_id}")
