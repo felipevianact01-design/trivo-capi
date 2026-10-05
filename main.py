@@ -468,10 +468,19 @@ async def _atualizar_render_clients_json(novo_cliente: dict) -> dict:
             clients = json.loads(env_map.get("CLIENTS_JSON", "[]"))
         except Exception:
             clients = []
-        # Remove versão anterior se já existir (re-onboarding)
-        clients = [c for c in clients if c.get("id") != novo_cliente.get("id")]
-        clients.append(novo_cliente)
-        env_map["CLIENTS_JSON"] = json.dumps(clients, ensure_ascii=False)
+        # Ao editar cliente existente: mescla com dados anteriores para não
+        # perder campos que não foram enviados (ex: token de senha não preenchido)
+        existente = next((c for c in clients if c.get("id") == novo_cliente.get("id")), {})
+        if existente:
+            merged = {**existente, **{k: v for k, v in novo_cliente.items() if v}}
+        else:
+            merged = novo_cliente
+        clients = [c for c in clients if c.get("id") != merged["id"]]
+        clients.append(merged)
+        clients_json_str = json.dumps(clients, ensure_ascii=False)
+        env_map["CLIENTS_JSON"] = clients_json_str
+        # Atualiza o processo atual imediatamente (sem esperar redeploy do Render)
+        os.environ["CLIENTS_JSON"] = clients_json_str
 
         # 3. Envia de volta
         payload = [{"key": k, "value": v} for k, v in env_map.items()]
@@ -529,9 +538,10 @@ async def onboarding(request: Request):
         entry["gtm_id"] = gtm_id
     if ga4_id:
         entry["ga4_id"] = ga4_id
-    if pixel_id and meta_token:
-        entry["pixel_id"]    = pixel_id
-        entry["meta_token"]  = meta_token
+    if pixel_id:
+        entry["pixel_id"] = pixel_id
+    if meta_token:
+        entry["meta_token"] = meta_token
     if google_ads_tag:
         entry["google_ads_id"]  = google_ads_tag.replace("AW-", "")
         entry["google_ads_tag"] = google_ads_tag
