@@ -892,11 +892,18 @@ async def saude_cliente(client_id: str):
                     resultado["meta"] = {"ok": True, "msg": f"Token válido — Pixel: {nome_pixel}"}
                 else:
                     err = r.json().get("error", {})
-                    resultado["meta"] = {
-                        "ok": False,
-                        "msg": err.get("message", "Token inválido"),
-                        "code": err.get("code"),
-                    }
+                    code = err.get("code")
+                    if code == 100:
+                        # Erro 100 = sem permissão de LEITURA de metadados do pixel,
+                        # mas o token é válido para enviar eventos CAPI (comportamento normal
+                        # de tokens gerados pelo Gerenciador de Eventos)
+                        resultado["meta"] = {"ok": True, "msg": "Token CAPI ativo ✓"}
+                    else:
+                        resultado["meta"] = {
+                            "ok": False,
+                            "msg": err.get("message", "Token inválido"),
+                            "code": code,
+                        }
             except Exception as e:
                 resultado["meta"] = {"ok": False, "msg": f"Erro na verificação: {str(e)[:120]}"}
         elif pixel_id:
@@ -913,7 +920,12 @@ async def saude_cliente(client_id: str):
                     site_url,
                     headers={"User-Agent": "Mozilla/5.0 (compatible; Trivo-HealthCheck/1.0)"},
                 )
-                if gtm_id in r.text or "googletagmanager.com" in r.text:
+                if r.status_code >= 500:
+                    resultado["gtm_site"] = {
+                        "ok": None,
+                        "msg": f"Site retornou erro {r.status_code} — não foi possível verificar instalação do GTM",
+                    }
+                elif gtm_id in r.text or "googletagmanager.com" in r.text:
                     resultado["gtm_site"] = {"ok": True, "msg": "GTM detectado no HTML do site"}
                 else:
                     resultado["gtm_site"] = {
