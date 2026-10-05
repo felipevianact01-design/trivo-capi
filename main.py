@@ -529,6 +529,7 @@ async def onboarding(request: Request):
     meta_token      = body.get("meta_token", "").strip()
     google_ads_tag  = body.get("google_ads_tag", "").strip()
     google_ads_label = body.get("google_ads_label", "").strip()
+    time_value      = body.get("time", "").strip()
     client_id       = _slug(nome)
 
     logger.info(f"[onboarding] registrando '{nome}' ({client_id})")
@@ -547,6 +548,8 @@ async def onboarding(request: Request):
         entry["google_ads_tag"] = google_ads_tag
         if google_ads_label:
             entry["google_ads_label"] = google_ads_label
+    if time_value in ("camisa10", "faixa-preta"):
+        entry["time"] = time_value
 
     render_result = await _atualizar_render_clients_json(entry)
     render_ok = render_result["status"] == "ok"

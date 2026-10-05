@@ -597,6 +597,15 @@ code {
       </div>
     </div>
 
+    <!-- Time -->
+    <div class="field" id="time-field" style="display:none">
+      <label class="field-label">Time responsável</label>
+      <div class="providers">
+        <label class="prov-chip"><input type="radio" name="f-time" value="camisa10"> ⚽ Camisa 10</label>
+        <label class="prov-chip"><input type="radio" name="f-time" value="faixa-preta"> 🥋 Faixa Preta</label>
+      </div>
+    </div>
+
     <!-- Checklist pré-salvar -->
     <div style="border-top:1px solid var(--border);padding-top:18px;margin-top:4px">
       <p class="field-label" style="margin-bottom:10px">Confirme antes de salvar:</p>
@@ -793,6 +802,14 @@ function showApp(username) {
 function openModal() {
   document.getElementById('modal-overlay').hidden = false;
   document.getElementById('modal-overlay').scrollTop = 0;
+  const tf = document.getElementById('time-field');
+  if (gUserTime) {
+    tf.style.display = '';
+    const radio = document.querySelector(`input[name="f-time"][value="${gUserTime}"]`);
+    if (radio) radio.checked = true;
+  } else {
+    tf.style.display = 'none';
+  }
 }
 function closeModal() {
   document.getElementById('modal-overlay').hidden = true;
@@ -1364,6 +1381,8 @@ async function startOnboarding() {
   if (hasMeta){payload.pixel_id=pixelId;payload.meta_token=tok;}
   const adsLabel=document.getElementById('f-ads-label').value.trim();
   if (hasGoog){payload.google_ads_tag=adsTag; if(adsLabel) payload.google_ads_label=adsLabel;}
+  const timeEl=document.querySelector('input[name="f-time"]:checked');
+  if (timeEl) payload.time=timeEl.value;
   logSet('log-render','active','Salvando cliente no servidor...');
   try {
     const resp = await fetch(`${API}/onboarding`,{
