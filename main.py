@@ -976,28 +976,29 @@ async def saude_cliente(client_id: str):
         # ── GTM: verifica se o script está instalado no site do cliente ──────
         gtm_id = c.get("gtm_id", "")
         site_url = c.get("url", "")
+        resultado["url_verificada"] = site_url  # debug: URL que o servidor está acessando
         if gtm_id and site_url:
             try:
                 r = await http.get(
                     site_url,
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; Trivo-HealthCheck/1.0)"},
+                    headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
                 )
                 if r.status_code >= 500:
                     resultado["gtm_site"] = {
                         "ok": None,
                         "msg": f"Site retornou erro {r.status_code} — não foi possível verificar instalação do GTM",
                     }
-                elif gtm_id in r.text or "googletagmanager.com" in r.text:
+                elif gtm_id in r.text or "googletagmanager" in r.text:
                     resultado["gtm_site"] = {"ok": True, "msg": "GTM detectado no HTML do site"}
                 else:
                     resultado["gtm_site"] = {
                         "ok": False,
-                        "msg": f"{gtm_id} não encontrado no HTML. Verifique se o snippet do GTM está instalado.",
+                        "msg": f"{gtm_id} não encontrado no HTML (url: {site_url})",
                     }
             except Exception as e:
                 resultado["gtm_site"] = {
                     "ok": None,
-                    "msg": f"Não foi possível acessar o site: {str(e)[:80]}",
+                    "msg": f"Não foi possível acessar o site ({site_url}): {str(e)[:80]}",
                 }
         elif gtm_id:
             resultado["gtm_site"] = {"ok": None, "msg": "URL do site não informada — instale o snippet manualmente"}
