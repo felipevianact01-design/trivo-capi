@@ -795,7 +795,7 @@ async def login(request: Request):
         match = next((u for u in users if u.get("username") == username), None)
         if not match or match.get("password_hash") != _hash_pass(password):
             raise HTTPException(status_code=401, detail="Usuário ou senha incorretos")
-        return {"token": _make_token(username), "username": username, "time": match.get("time", "")}
+        return {"token": _make_token(username), "username": username, "time": match.get("time", ""), "is_admin": match.get("admin", False)}
 
     # Fallback: variáveis legadas ONBOARDING_USER / ONBOARDING_PASS
     if not ONBOARDING_USER or not ONBOARDING_PASS:
@@ -815,7 +815,7 @@ async def auth_verify(request: Request):
     if users:
         for u in users:
             if _make_token(u["username"]) == token:
-                return {"valid": True, "username": u["username"], "time": u.get("time", "")}
+                return {"valid": True, "username": u["username"], "time": u.get("time", ""), "is_admin": u.get("admin", False)}
         # Fallback legado dentro do mesmo bloco de users
         raise HTTPException(status_code=401, detail="Token inválido")
 
@@ -841,14 +841,19 @@ def painel():
     return FileResponse("static/painel.html", media_type="text/html")
 
 
-def _user_time_from_token(token: str) -> str:
-    """Retorna o time do usuário autenticado, ou '' se não tiver time (admin/legado)."""
+def _user_from_token(token: str) -> dict:
+    """Retorna o dict do usuário autenticado, ou {} se não encontrado."""
     users = _load_users()
-    if users:
-        for u in users:
-            if _make_token(u["username"]) == token:
-                return u.get("time", "")
-    return ""
+    for u in users:
+        if _make_token(u["username"]) == token:
+            return u
+    return {}
+
+def _user_time_from_token(token: str) -> str:
+    return _user_from_token(token).get("time", "")
+
+def _is_admin_token(token: str) -> bool:
+    return bool(_user_from_token(token).get("admin", False))
 
 
 @app.get("/clientes")
@@ -899,7 +904,7 @@ async def listar_clientes(request: Request):
 
 @app.patch("/clientes/{client_id}/time")
 async def definir_time_cliente(client_id: str, request: Request):
-    """Define o time de um container — só pode ser feito uma vez."""
+    """Define o time de um container. Admin pode alterar a qualquer momento; outros usuários só podem definir uma vez."""
     auth = request.headers.get("Authorization", "")
     token = auth.replace("Bearer ", "").strip()
     users = _load_users()
@@ -908,6 +913,8 @@ async def definir_time_cliente(client_id: str, request: Request):
     )
     if not valid:
         raise HTTPException(status_code=401, detail="Token inválido")
+
+    is_admin = _is_admin_token(token)
 
     try:
         body = await request.json()
@@ -923,7 +930,7 @@ async def definir_time_cliente(client_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Cliente não encontrado")
 
     c = clients[client_id]
-    if c.get("time"):
+    if c.get("time") and not is_admin:
         raise HTTPException(status_code=409, detail=f"Time já definido como '{c['time']}' — não pode ser alterado")
 
     result = await _atualizar_render_clients_json({**c, "time": time_novo})

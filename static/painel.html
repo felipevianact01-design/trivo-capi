@@ -769,7 +769,7 @@ code {
 
 <script>
 const API = window.location.origin;
-let gClientId = '', gHasGoogle = false, gToken = '', gClients = [], gUserTime = '';
+let gClientId = '', gHasGoogle = false, gToken = '', gClients = [], gUserTime = '', gIsAdmin = false;
 
 function savedToken() { try { return localStorage.getItem('trivo_token') || ''; } catch { return ''; } }
 function savedUser()  { try { return localStorage.getItem('trivo_user')  || ''; } catch { return ''; } }
@@ -784,7 +784,7 @@ async function checkExistingSession() {
     const r = await fetch(`${API}/auth/verify`, { headers: { Authorization: `Bearer ${tok}` } });
     if (r.ok) {
       const d = await r.json();
-      gToken = tok; gUserTime = d.time || savedTime();
+      gToken = tok; gUserTime = d.time || savedTime(); gIsAdmin = d.is_admin || false;
       showApp(savedUser());
     } else { clearSession(); showLogin(); }
   } catch { showLogin(); }
@@ -884,7 +884,7 @@ async function doLogin() {
       document.getElementById('login-err-text').textContent = d.detail || 'Usuário ou senha incorretos.';
       err.hidden = false; btn.disabled = false; btn.textContent = 'Entrar'; return;
     }
-    gToken = d.token; gUserTime = d.time || ''; saveSession(d.token, d.username, d.time); showApp(d.username);
+    gToken = d.token; gUserTime = d.time || ''; gIsAdmin = d.is_admin || false; saveSession(d.token, d.username, d.time); showApp(d.username);
   } catch {
     document.getElementById('login-err-text').textContent = 'Erro de conexão com o servidor.';
     err.hidden = false; btn.disabled = false; btn.textContent = 'Entrar';
@@ -996,9 +996,12 @@ async function loadClients() {
     gClients = d.clientes;
     list.innerHTML = d.clientes.map((c, i) => {
       const displayName = c.nome || c.id.split('-').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
+      const timeLabel = c.time === 'camisa10' ? '⚽ Camisa 10' : '🥋 Faixa Preta';
       const timeBadge = c.time
-        ? `<span class="time-badge time-${c.time}">${c.time === 'camisa10' ? '⚽ Camisa 10' : '🥋 Faixa Preta'}</span>`
-        : (gUserTime ? `<button class="time-badge time-unset" onclick="definirTime(${i})">🏷 Definir time</button>` : '');
+        ? (gIsAdmin
+            ? `<button class="time-badge time-${c.time}" onclick="definirTime(${i})" title="Admin: clique para trocar o time">${timeLabel} ✎</button>`
+            : `<span class="time-badge time-${c.time}">${timeLabel}</span>`)
+        : (gUserTime || gIsAdmin ? `<button class="time-badge time-unset" onclick="definirTime(${i})">🏷 Definir time</button>` : '');
       return `<div class="client-card" style="flex-direction:column;align-items:stretch;gap:10px" id="cc-${i}">
         <div style="display:flex;align-items:center;gap:14px">
           <div class="client-avatar">🏢</div>
@@ -1033,14 +1036,29 @@ function filterClients() {
 
 async function definirTime(i) {
   const c = gClients[i]; if (!c) return;
-  if (c.time) return; // já definido
-  const label = gUserTime === 'camisa10' ? '⚽ Camisa 10' : '🥋 Faixa Preta';
-  if (!confirm(`Definir este container para o time ${label}?\n\nEsta ação não poderá ser desfeita.`)) return;
+
+  let timeNovo;
+  if (gIsAdmin) {
+    // Admin pode escolher qualquer time ou remover
+    const opcao = prompt(
+      `Time atual: ${c.time || '(nenhum)'}\n\nDigite o novo time:\n  1 → ⚽ Camisa 10\n  2 → 🥋 Faixa Preta`,
+      c.time === 'faixa-preta' ? '2' : '1'
+    );
+    if (!opcao) return;
+    timeNovo = opcao.trim() === '2' ? 'faixa-preta' : 'camisa10';
+    if (!confirm(`Trocar para ${timeNovo === 'camisa10' ? '⚽ Camisa 10' : '🥋 Faixa Preta'}?`)) return;
+  } else {
+    if (c.time) return; // não-admin não pode trocar
+    const label = gUserTime === 'camisa10' ? '⚽ Camisa 10' : '🥋 Faixa Preta';
+    if (!confirm(`Definir este container para o time ${label}?\n\nEsta ação não poderá ser desfeita.`)) return;
+    timeNovo = gUserTime;
+  }
+
   try {
     const r = await fetch(`${API}/clientes/${c.id}/time`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${gToken}` },
-      body: JSON.stringify({ time: gUserTime }),
+      body: JSON.stringify({ time: timeNovo }),
     });
     const d = await r.json();
     if (!r.ok) { alert(d.detail || 'Erro ao definir time.'); return; }
