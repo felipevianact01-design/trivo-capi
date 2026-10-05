@@ -373,6 +373,29 @@ code {
   border-radius: 5px; padding: 1px 7px; font-size: 11px;
 }
 .client-badge.active { color: var(--success); border-color: rgba(52,211,153,0.3); }
+
+/* ── Health dots ── */
+.health-row { display:flex; gap:12px; flex-wrap:wrap; margin-top:6px; }
+.hi { display:flex; align-items:center; gap:5px; font-size:11px; cursor:default; }
+.hi.has-issue { cursor:help; }
+.hd { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.hd.ok   { background:#34d399; box-shadow:0 0 6px rgba(52,211,153,.55); }
+.hd.warn { background:#fbbf24; box-shadow:0 0 6px rgba(251,191,36,.5); animation:pulse-warn 2s infinite; }
+.hd.off  { background:rgba(255,255,255,.14); }
+@keyframes pulse-warn { 0%,100%{opacity:1} 50%{opacity:.45} }
+
+/* ── Health panel expandido ── */
+.health-panel {
+  margin-top:10px; padding:12px 14px; border-radius:10px;
+  background:var(--surface-3); border:1px solid var(--border);
+  display:flex; flex-direction:column; gap:8px;
+}
+.hp-row { display:flex; align-items:flex-start; gap:10px; font-size:12px; }
+.hp-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; margin-top:3px; }
+.hp-label { font-weight:600; min-width:80px; }
+.hp-msg { color:var(--fg-muted); }
+.hp-err { color:var(--warning); }
+.hp-action { font-size:11px; color:var(--accent); cursor:pointer; text-decoration:underline; margin-top:2px; }
 .btn-dl {
   background: rgba(255,255,255,0.06); border: 1px solid var(--border-strong);
   border-radius: 8px; color: var(--fg-muted); padding: 6px 12px;
@@ -918,25 +941,98 @@ async function loadClients() {
     }
     gClients = d.clientes;
     list.innerHTML = d.clientes.map((c, i) => {
-      const badges = [];
-      if (c.gtm_id) badges.push(`<span class="client-badge active">${c.gtm_id}</span>`);
-      if (c.ga4_id) badges.push(`<span class="client-badge active">${c.ga4_id}</span>`);
-      if (c.meta)   badges.push(`<span class="client-badge active">Meta CAPI</span>`);
-      if (c.google_ads) badges.push(`<span class="client-badge active">Google Ads</span>`);
       const displayName = c.nome || c.id.split('-').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join(' ');
-      return `<div class="client-card">
-        <div class="client-avatar">🏢</div>
-        <div class="client-info">
-          <div class="client-name">${displayName}</div>
-          <div class="client-meta">${badges.join('')}</div>
+      return `<div class="client-card" style="flex-direction:column;align-items:stretch;gap:10px" id="cc-${i}">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div class="client-avatar">🏢</div>
+          <div class="client-info">
+            <div class="client-name">${displayName}</div>
+            <div class="health-row">${healthRow(c)}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="toggleHealth(${i})">🔍</button>
+            <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="openModalForEdit(${i})">✏</button>
+            <button class="btn-dl" onclick="downloadGTMJsonForClient(${i})">⬇ GTM JSON</button>
+          </div>
         </div>
-        <div style="display:flex;gap:6px;flex-shrink:0">
-          <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="openModalForEdit(${i})">✏ Editar</button>
-          <button class="btn-dl" onclick="downloadGTMJsonForClient(${i})">⬇ GTM JSON</button>
-        </div>
+        <div class="health-panel" id="hp-${i}" hidden></div>
       </div>`;
     }).join('');
   } catch(e) { console.error('loadClients:', e); }
+}
+
+function healthRow(c) {
+  const checks = [
+    { label:'GTM',      ok:!!c.gtm_id,                      opt:false, msg:'Container GTM não informado' },
+    { label:'GA4',      ok:!!c.ga4_id,                      opt:true,  msg:'GA4 não configurado' },
+    { label:'Meta CAPI',ok:!!(c.pixel_id && c.meta_token),  opt:false, msg: c.pixel_id&&!c.meta_token ? 'Token CAPI ausente' : 'Meta não configurado' },
+    { label:'Google Ads',ok:!!c.google_ads_id,              opt:true,  msg:'Google Ads não configurado' },
+  ];
+  return checks.map(ch => {
+    const cls = ch.ok ? 'ok' : (ch.opt ? 'off' : 'warn');
+    const col = ch.ok ? 'var(--fg)' : (ch.opt ? 'var(--fg-muted)' : 'var(--warning)');
+    const tip = !ch.ok ? ` title="${ch.msg}"` : '';
+    const hic = !ch.ok && !ch.opt ? ' has-issue' : '';
+    return `<span class="hi${hic}"${tip}><span class="hd ${cls}"></span><span style="color:${col}">${ch.label}</span></span>`;
+  }).join('');
+}
+
+async function toggleHealth(i) {
+  const panel = document.getElementById(`hp-${i}`);
+  if (!panel.hidden) { panel.hidden = true; return; }
+  const c = gClients[i]; if (!c) return;
+  panel.hidden = false;
+  panel.innerHTML = '<span style="font-size:12px;color:var(--fg-muted)">Verificando…</span>';
+
+  const issues = [];
+  const items = [];
+
+  // Verificação local (configuração)
+  if (!c.gtm_id)
+    issues.push({ label:'GTM', ok:false, msg:'ID do container GTM não informado.', fix:'Edite o cliente e adicione o GTM-XXXXXXX.' });
+  else
+    items.push({ label:'GTM', ok:true, msg:c.gtm_id });
+
+  if (!c.ga4_id)
+    items.push({ label:'GA4', ok:null, msg:'Não configurado (opcional).' });
+  else
+    items.push({ label:'GA4', ok:true, msg:c.ga4_id });
+
+  if (!c.pixel_id)
+    items.push({ label:'Meta Pixel', ok:null, msg:'Não configurado.' });
+  else if (!c.meta_token)
+    issues.push({ label:'Meta CAPI', ok:false, msg:'Pixel ID presente mas Token de Acesso não informado.', fix:'Edite e cole o token gerado no Gerenciador de Eventos → API de Conversões.' });
+  else
+    items.push({ label:'Meta Pixel + CAPI', ok:true, msg:`Pixel ${c.pixel_id}` });
+
+  if (!c.google_ads_id)
+    items.push({ label:'Google Ads', ok:null, msg:'Não configurado (opcional).' });
+  else
+    items.push({ label:'Google Ads', ok:true, msg:`AW-${c.google_ads_id}` });
+
+  // Verificação ao vivo no servidor
+  try {
+    const r = await fetch(`${API}/verificar/${c.id}`);
+    const d = await r.json();
+    if (d.status === 'ok') {
+      if (!d.providers.meta_capi && c.pixel_id && c.meta_token)
+        issues.push({ label:'Meta CAPI (servidor)', ok:false, msg:'Servidor não reconhece o cliente. Aguarde o redeploy do Render (~1 min).', fix:'Se persistir, verifique se o Render reiniciou após o cadastro.' });
+    }
+  } catch(e) {}
+
+  const rows = [...issues.map(it => `
+    <div class="hp-row">
+      <span class="hp-dot" style="background:var(--warning)"></span>
+      <div><div><span class="hp-label">${it.label}</span> <span class="hp-err">⚠ ${it.msg}</span></div>
+      <div class="hp-action" onclick="openModalForEdit(${i})">→ ${it.fix}</div></div>
+    </div>`),
+  ...items.map(it => `
+    <div class="hp-row">
+      <span class="hp-dot" style="background:${it.ok===true?'#34d399':it.ok===false?'var(--error)':'rgba(255,255,255,.15)'}"></span>
+      <div><span class="hp-label">${it.label}</span> <span class="hp-msg">${it.msg}</span></div>
+    </div>`)];
+
+  panel.innerHTML = rows.join('') || '<span style="font-size:12px;color:var(--success)">✓ Tudo configurado corretamente.</span>';
 }
 
 function slugify(text) {
