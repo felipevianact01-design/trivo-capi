@@ -1150,7 +1150,7 @@ async function toggleHealth(i) {
           ${liveChecks.meta?.ok===false ? `<div class="hp-action" onclick="openModalForEdit(${i})">→ Gere um novo token no Gerenciador de Eventos → API de Conversões</div>` : ''}
           </div></div>`);
 
-      if (liveChecks.gtm_site?.ok !== null)
+      if (liveChecks.gtm_site)
         liveRows.push(`<div class="hp-row">
           <span class="hp-dot" style="background:${dotColor(liveChecks.gtm_site?.ok)}"></span>
           <div><span class="hp-label">${gtmIcon} GTM instalado no site</span> <span class="hp-msg">${liveChecks.gtm_site?.msg||''}</span></div>
