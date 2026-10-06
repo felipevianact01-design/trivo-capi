@@ -996,13 +996,29 @@ async def saude_cliente(client_id: str):
                         "Accept-Encoding": "gzip, deflate",  # evita brotli (httpx precisa de lib extra pra brotli)
                     },
                 )
+                html = r.text
+                # Detecta plugins de performance que removem scripts do HTML inicial
+                lazy_plugins = [
+                    "RocketLazyLoad",         # WP Rocket
+                    "data-rocketlazyloadsrc", # WP Rocket (src renomeado)
+                    'type="litespeed/javascript"',  # LiteSpeed Cache
+                    "data-optimized-by-wpo",  # WP Optimize
+                    "data-cfasync",           # Cloudflare Rocket Loader
+                ]
+                usa_lazy = any(p in html for p in lazy_plugins)
+
                 if r.status_code >= 500:
                     resultado["gtm_site"] = {
                         "ok": None,
                         "msg": f"Site retornou erro {r.status_code} — não foi possível verificar instalação do GTM",
                     }
-                elif gtm_id in r.text or "googletagmanager" in r.text:
+                elif gtm_id in html or "googletagmanager" in html:
                     resultado["gtm_site"] = {"ok": True, "msg": "GTM detectado no HTML do site"}
+                elif usa_lazy:
+                    resultado["gtm_site"] = {
+                        "ok": None,
+                        "msg": f"Não verificável: site usa plugin de performance (WP Rocket / LiteSpeed) que carrega scripts via JS. Confirme pelo GTM Tag Assistant no Chrome.",
+                    }
                 else:
                     resultado["gtm_site"] = {
                         "ok": False,
