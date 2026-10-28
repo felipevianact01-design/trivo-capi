@@ -902,6 +902,42 @@ async def listar_clientes(request: Request):
     }
 
 
+@app.delete("/clientes/{client_id}")
+async def excluir_cliente(client_id: str, request: Request):
+    """Remove um container. Apenas admins."""
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "").strip()
+
+    if not _is_admin_token(token):
+        raise HTTPException(status_code=403, detail="Apenas administradores podem excluir containers")
+
+    clients = load_clients()
+    if client_id not in clients:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado")
+
+    nova_lista = [c for cid, c in clients.items() if cid != client_id]
+    clients_json_str = json.dumps(nova_lista, ensure_ascii=False)
+    os.environ["CLIENTS_JSON"] = clients_json_str
+
+    if RENDER_API_KEY and RENDER_SERVICE_ID:
+        h = {"Authorization": f"Bearer {RENDER_API_KEY}", "Accept": "application/json",
+             "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.get(
+                f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars", headers=h)
+            if r.status_code == 200:
+                items = r.json()
+                env_map = {i["envVar"]["key"]: i["envVar"]["value"] for i in items if "envVar" in i}
+                env_map["CLIENTS_JSON"] = clients_json_str
+                payload = [{"key": k, "value": v} for k, v in env_map.items()]
+                await http.put(
+                    f"https://api.render.com/v1/services/{RENDER_SERVICE_ID}/env-vars",
+                    headers=h, json=payload)
+
+    logger.info(f"[excluir] '{client_id}' removido — {len(nova_lista)} containers restantes")
+    return {"ok": True, "client_id": client_id}
+
+
 @app.patch("/clientes/{client_id}/time")
 async def definir_time_cliente(client_id: str, request: Request):
     """Define o time de um container. Admin pode alterar a qualquer momento; outros usuários só podem definir uma vez."""

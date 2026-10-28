@@ -1016,6 +1016,7 @@ async function loadClients() {
             <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="toggleHealth(${i})">🔍</button>
             <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="openModalForEdit(${i})">✏</button>
             <button class="btn-dl" onclick="downloadGTMJsonForClient(${i})">⬇ GTM JSON</button>
+            ${gIsAdmin ? `<button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="excluirCliente(${i})" title="Excluir container">🗑</button>` : ''}
           </div>
         </div>
         <div class="health-panel" id="hp-${i}" hidden></div>
@@ -1032,6 +1033,22 @@ function filterClients() {
     const name = (c.nome || c.id).toLowerCase();
     card.style.display = (!q || name.includes(q)) ? '' : 'none';
   });
+}
+
+async function excluirCliente(i) {
+  const c = gClients[i]; if (!c) return;
+  const nome = c.nome || c.id;
+  if (!confirm(`Excluir "${nome}"?\n\nEsta ação não pode ser desfeita.`)) return;
+  const tok = localStorage.getItem('trivo_token');
+  try {
+    const r = await fetch(`/clientes/${c.id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${tok}` }
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Erro ao excluir');
+    await loadClients();
+  } catch(e) { alert('Erro ao excluir: ' + e.message); }
 }
 
 async function definirTime(i) {
