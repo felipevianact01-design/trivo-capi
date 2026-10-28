@@ -1016,7 +1016,7 @@ async function loadClients() {
             <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="toggleHealth(${i})">🔍</button>
             <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="openModalForEdit(${i})">✏</button>
             <button class="btn-dl" onclick="downloadGTMJsonForClient(${i})">⬇ GTM JSON</button>
-            ${gIsAdmin ? `<button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="excluirCliente(${i})" title="Excluir container">🗑</button>` : ''}
+            <button class="btn-ghost" style="padding:6px 12px;font-size:12px" onclick="excluirCliente(${i})" title="Excluir container">🗑</button>
           </div>
         </div>
         <div class="health-panel" id="hp-${i}" hidden></div>
