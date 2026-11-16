@@ -351,6 +351,20 @@ async def _criar_gtm_entities(token: str, account_id: str, container_id: str,
         sol.raise_for_status()
         sol_id = sol.json()["triggerId"]
 
+        join_chat = await http.post(f"{wb}/triggers", json={
+            "name": "Evento personalizado - JoinChat",
+            "type": "customEvent",
+            "customEventFilter": [{
+                "type": "equals",
+                "parameter": [
+                    {"type": "template", "key": "arg0", "value": "{{_event}}"},
+                    {"type": "template", "key": "arg1", "value": "JoinChat"}
+                ]
+            }]
+        }, headers=h)
+        join_chat.raise_for_status()
+        join_chat_id = join_chat.json()["triggerId"]
+
         async def ct(body):
             r = await http.post(f"{wb}/tags", json=body, headers=h)
             if r.status_code not in (200, 201):
@@ -393,7 +407,7 @@ async def _criar_gtm_entities(token: str, account_id: str, container_id: str,
             await ct({"name": "Meta Pixel - Lead (Botão WhatsApp)", "type": "html",
                       "parameter": [{"type": "template", "key": "html", "value": lead_px_html},
                                     {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}],
-                      "firingTriggerId": [str(wa_id), str(sol_id)]})
+                      "firingTriggerId": [str(wa_id), str(sol_id), str(join_chat_id)]})
 
             lead_capi_html = (
                 "<script>\n(function(){\n"
@@ -406,7 +420,7 @@ async def _criar_gtm_entities(token: str, account_id: str, container_id: str,
             await ct({"name": "Meta CAPI - Lead (Botão WhatsApp)", "type": "html",
                       "parameter": [{"type": "template", "key": "html", "value": lead_capi_html},
                                     {"type": "boolean", "key": "supportDocumentWrite", "value": "false"}],
-                      "firingTriggerId": [str(wa_id), str(sol_id)]})
+                      "firingTriggerId": [str(wa_id), str(sol_id), str(join_chat_id)]})
 
         # Tags — Google
         if google_ads_tag:
@@ -420,7 +434,7 @@ async def _criar_gtm_entities(token: str, account_id: str, container_id: str,
             await ct({"name": "Google Ads - Conversão Botão WhatsApp", "type": "awct",
                       "parameter": [{"type": "template", "key": "conversionId", "value": "{{Google Ads - Tag ID}}"},
                                     {"type": "template", "key": "conversionLabel", "value": "{{Google Ads - Label Botão}}"}],
-                      "firingTriggerId": [str(wa_id), str(sol_id)],
+                      "firingTriggerId": [str(wa_id), str(sol_id), str(join_chat_id)],
                       "tagFiringOption": "ONCE_PER_EVENT"})
 
         # Tags — GA4
@@ -433,7 +447,7 @@ async def _criar_gtm_entities(token: str, account_id: str, container_id: str,
                       "parameter": [{"type": "template", "key": "measurementId", "value": "{{GA4 - Measurement ID}}"},
                                     {"type": "boolean", "key": "sendPageView", "value": "false"},
                                     {"type": "template", "key": "eventName", "value": "generate_lead"}],
-                      "firingTriggerId": [str(wa_id), str(sol_id)]})
+                      "firingTriggerId": [str(wa_id), str(sol_id), str(join_chat_id)]})
 
     logger.info(f"[onboarding] entities criadas no workspace {ws_id}")
     return ws_id
